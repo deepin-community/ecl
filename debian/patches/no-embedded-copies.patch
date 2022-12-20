@@ -1,0 +1,40 @@
+Description: Do not rely on embedded code copies
+ GMP, libffi and boehm GC are stripped off the Debian source package. Ensure
+ that everything goes smoothly in that context.
+Author: Sébastien Villemot <sebastien@debian.org>
+Forwarded: not-needed
+Last-Update: 2018-10-29
+---
+This patch header follows DEP-3: http://dep.debian.net/deps/dep3/
+--- a/src/configure.ac
++++ b/src/configure.ac
+@@ -11,7 +11,6 @@
+ AC_INIT([ecl],[20.4.24],[])
+ AC_REVISION([$Revision$])
+ AC_CONFIG_SRCDIR([bare.lsp.in])
+-AC_CONFIG_AUX_DIR([gmp])
+ AC_PREREQ(2.69)
+ 
+ dnl -----------------------------------------------------------------------
+--- a/src/Makefile.in
++++ b/src/Makefile.in
+@@ -62,7 +62,7 @@
+ INSTALL_SCRIPT = @INSTALL_SCRIPT@
+ INSTALL_LIBRARY = $(INSTALL_SCRIPT)
+ INSTALL_DATA = @INSTALL_DATA@
+-mkinstalldirs = $(top_srcdir)/bdwgc/install-sh -d
++mkinstalldirs = $(top_srcdir)/install.sh -d
+ 
+ # Files
+ 
+--- a/src/doc/Makefile.in
++++ b/src/doc/Makefile.in
+@@ -14,7 +14,7 @@
+ INSTALL_PROGRAM = @INSTALL_PROGRAM@
+ INSTALL_DATA = @INSTALL_DATA@
+ INSTALL_INFO = @INSTALL_INFO@
+-mkinstalldirs = $(top_srcdir)/bdwgc/install-sh -d
++mkinstalldirs = $(top_srcdir)/install.sh -d
+ INFO_FILE = ecl.info.gz
+ MAKEINFO = @MAKEINFO@
+ MANUAL_MAKE_TARGET = @MANUAL_MAKE_TARGET@

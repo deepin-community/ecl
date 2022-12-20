@@ -1,0 +1,38 @@
+#!/usr/bin/make -f
+
+# Uncomment this to turn on verbose mode.
+#export DH_VERBOSE=1
+
+%:
+	dh $@
+
+override_dh_auto_configure:
+	touch src/configure.in && \
+	touch src/aclocal.m4 && \
+	touch src/configure configure
+
+	dh_auto_configure -- \
+	   --enable-gmp=system \
+	   --with-tcp \
+	   --enable-threads=yes \
+	   --enable-boehm=system  \
+	   --enable-libatomic=system \
+	   --disable-rpath \
+	   --with-x
+
+override_dh_autoreconf:
+	dh_autoreconf autoreconf -- -f -i src/
+
+#mostly require remote access
+override_dh_auto_test:
+
+override_dh_auto_install:
+	dh_auto_install
+# fix lintian error package-contains-info-dir-file
+	rm -f debian/ecl/usr/share/info/dir
+
+override_dh_auto_clean:
+	dh_auto_clean
+	rm -rf build
+	rm -f src/configure.in
+
