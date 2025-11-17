@@ -6,12 +6,7 @@
 
 ;;;;  Copyright (c) 2010. Juan Jose Garcia-Ripol
 ;;;;
-;;;;    This program is free software; you can redistribute it and/or
-;;;;    modify it under the terms of the GNU Library General Public
-;;;;    License as published by the Free Software Foundation; either
-;;;;    version 2 of the License, or (at your option) any later version.
-;;;;
-;;;;    See file '../Copyright' for full details.
+;;;;    See file 'LICENSE' for the copyright details.
 
 (in-package "COMPILER")
 
@@ -19,7 +14,7 @@
   (when (and (si::valid-function-name-p fname)
              (fboundp fname))
     (let ((function (fdefinition fname)))
-      (when (typep function 'generic-function)
+      (when (typep function 'generic-function *cmp-env*)
         (generic-function-macro-expand function (list* fname args))))))
 
 (defmethod generic-function-macro-expand ((g standard-generic-function) whole)
@@ -29,7 +24,7 @@
 
 (defun optimizable-slot-reader (method whole)
   (declare (si::c-local))
-  (when (typep method 'clos:standard-reader-method)
+  (when (typep method 'clos:standard-reader-method *cmp-env*)
     (let ((class (first (clos:method-specializers method))))
       (when (clos::class-sealedp class)
         (let* ((slotd (clos:accessor-method-slot-definition method))
@@ -52,7 +47,7 @@
 
 (defun optimizable-slot-writer (method whole)
   (declare (si::c-local))
-  (when (typep method 'clos:standard-writer-method)
+  (when (typep method 'clos:standard-writer-method *cmp-env*)
     (let ((class (second (clos:method-specializers method))))
       (when (clos::class-sealedp class)
         (let* ((slotd (clos:accessor-method-slot-definition method))

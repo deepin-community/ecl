@@ -43,11 +43,6 @@ si_allocate_raw_instance(cl_object orig, cl_object clas, cl_object size)
 cl_object
 si_instance_obsolete_p(cl_object x)
 {
-  /* Each class has a slot class_stamp and each instance has a slot
-     stamp. When an instance stamp its class class_stamp don't match,
-     then the instance is obsolete. Structure stamp is always 0. */
-  if (x->instance.stamp == 0)
-    return ECL_NIL;
   return (x->instance.stamp != ECL_CLASS_OF(x)->instance.class_stamp)
     ? ECL_T : ECL_NIL;
 }
@@ -332,7 +327,7 @@ ecl_slot_value_set(cl_object x, const char *slot, cl_object value)
 }
 
 /**********************************************************************
- * IMPORTANT: THE FOLLOWING LIST IS LINKED TO src/clos/builtin.lsp
+ * IMPORTANT: THE FOLLOWING LIST IS LINKED TO src/clos/hierarchy.lsp
  **********************************************************************/
 enum ecl_built_in_classes {
   ECL_BUILTIN_T = 0,
@@ -342,9 +337,7 @@ enum ecl_built_in_classes {
   ECL_BUILTIN_ARRAY,
   ECL_BUILTIN_VECTOR,
   ECL_BUILTIN_STRING,
-#ifdef ECL_UNICODE
   ECL_BUILTIN_BASE_STRING,
-#endif
   ECL_BUILTIN_BIT_VECTOR,
   ECL_BUILTIN_STREAM,
   ECL_BUILTIN_ANSI_STREAM,
@@ -369,12 +362,10 @@ enum ecl_built_in_classes {
   ECL_BUILTIN_DOUBLE_FLOAT,
   ECL_BUILTIN_LONG_FLOAT,
   ECL_BUILTIN_COMPLEX,
-#ifdef ECL_COMPLEX_FLOAT
   ECL_BUILTIN_COMPLEX_FLOAT,
   ECL_BUILTIN_COMPLEX_SINGLE_FLOAT,
   ECL_BUILTIN_COMPLEX_DOUBLE_FLOAT,
   ECL_BUILTIN_COMPLEX_LONG_FLOAT,
-#endif
   ECL_BUILTIN_SYMBOL,
   ECL_BUILTIN_NULL,
   ECL_BUILTIN_KEYWORD,
@@ -388,20 +379,15 @@ enum ecl_built_in_classes {
   ECL_BUILTIN_CODE_BLOCK,
   ECL_BUILTIN_FOREIGN_DATA,
   ECL_BUILTIN_FRAME,
-  ECL_BUILTIN_WEAK_POINTER
-#ifdef ECL_THREADS
-  ,
+  ECL_BUILTIN_WEAK_POINTER,
   ECL_BUILTIN_PROCESS,
   ECL_BUILTIN_LOCK,
   ECL_BUILTIN_RWLOCK,
   ECL_BUILTIN_CONDITION_VARIABLE,
   ECL_BUILTIN_SEMAPHORE,
   ECL_BUILTIN_BARRIER,
-  ECL_BUILTIN_MAILBOX
-#endif
-#ifdef ECL_SSE2
-  , ECL_BUILTIN_SSE_PACK
-#endif
+  ECL_BUILTIN_MAILBOX,
+  ECL_BUILTIN_SSE_PACK
 };
 
 cl_object
@@ -525,7 +511,7 @@ cl_class_of(cl_object x)
      * optimize the slot access */
     cl_object v = @'clos::+builtin-classes+'->symbol.value;
     cl_object output = Null(v)?
-      cl_find_class(1,@'t') :
+      cl_find_class(1, ECL_T) :
       v->vector.self.t[index];
     @(return output);
   }

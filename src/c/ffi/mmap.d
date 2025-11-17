@@ -53,7 +53,7 @@
                        @':element-type', element_type,
                        @':if-exists', if_exists,
                        @':if-does-not-exist', if_does_not_exist,
-                       @':external-format', @':default',
+                       @':external-format', external_format,
                        @':cstream', ECL_NIL);
       fd = ecl_to_int(si_file_stream_fd(stream));
       if (Null(length))
@@ -90,8 +90,6 @@
                                  @':cstream', ECL_T);
       if (Null(length))
         length = ecl_file_length(stream);
-      else
-        length = ecl_to_unsigned_integer(length);
       output = si_make_vector(element_type, length, ECL_NIL,
                               ECL_NIL, ECL_NIL, ECL_NIL);
       cl_read_sequence(2, output, stream);

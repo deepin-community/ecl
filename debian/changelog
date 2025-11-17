@@ -1,8 +1,83 @@
-ecl (20.4.24+ds-deepin1) unstable; urgency=medium
+ecl (24.5.10.20250914.git294da20+dfsg-3) sid; urgency=medium
 
-  * Rebuild
+  * Fix m68k typo
+  * Added some documentation to the patches
 
- -- Deepin Packages Builder <packages@deepin.org>  Mon, 14 Nov 2022 17:35:46 +0800
+ -- Peter Van Eynde <pvaneynd@debian.org>  Wed, 08 Oct 2025 07:56:49 +0200
+
+ecl (24.5.10.20250914.git294da20+dfsg-2) sid; urgency=medium
+
+  * On the suggestion of the ecl maintainers, see if disabling threading fixes
+    some ports
+  * Make lintian override work on other architectures
+
+ -- Peter Van Eynde <pvaneynd@debian.org>  Tue, 07 Oct 2025 18:24:49 +0200
+
+ecl (24.5.10.20250914.git294da20+dfsg-1) unstable; urgency=medium
+
+  * Updated Standards-Version, no changes
+  * Added man pages
+  * Apply https://salsa.debian.org/common-lisp-team/ecl/-/merge_requests/2
+    manually
+  * Moved to proper dfsg suffix
+  * Temporary track the GIT state to test the new version with gcc-15 support
+    (Closes: 1096562)
+  * New upstream version 24.5.10.20250914.git294da20+dfsg
+  * Revert t64 changes. (Closes: #1092000)
+  * Add libraries to package. (Closes: 1008176)
+  * Added temporary patch to show the right Git commit
+  * Fixed copyright files
+
+ -- Peter Van Eynde <pvaneynd@debian.org>  Fri, 26 Sep 2025 11:26:07 +0200
+
+ecl (24.5.10+ds-1) unstable; urgency=medium
+
+  * New upstream version 24.5.10+ds
+  * Depend on libncurses-dev instead of libncurses5-dev
+  * Future-proof by disabling LTO support, with thanks to Steve Langasek. (Closes: 1069910)
+  * Adjust lintian warnings
+  * Adjust library soname with new version
+  * Adjusted copyright file
+
+ -- Peter Van Eynde <pvaneynd@debian.org>  Wed, 01 Jan 2025 10:53:47 +0100
+
+ecl (21.2.1+ds-4.1) unstable; urgency=medium
+
+  * Non-maintainer upload.
+  * Rename libraries for 64-bit time_t transition.  Closes: #1062520
+
+ -- Michael Hudson-Doyle <mwhudson@debian.org>  Wed, 28 Feb 2024 02:42:24 +0000
+
+ecl (21.2.1+ds-4) unstable; urgency=medium
+
+  * Add dependency on libecl-dev to ecl.
+
+ -- Tobias Hansen <thansen@debian.org>  Sat, 15 Jan 2022 08:32:24 +0000
+
+ecl (21.2.1+ds-3) unstable; urgency=medium
+
+  * Install help.doc.
+
+ -- Tobias Hansen <thansen@debian.org>  Fri, 14 Jan 2022 20:24:24 +0000
+
+ecl (21.2.1+ds-2) unstable; urgency=medium
+
+  * Provide library packages for libecl. (Closes: #1001541)
+
+ -- Tobias Hansen <thansen@debian.org>  Mon, 10 Jan 2022 22:33:42 +0000
+
+ecl (21.2.1+ds-1) unstable; urgency=medium
+
+  * New upstream release.
+  * Remove patches applied upstream:
+    - 210.patch
+    - 214.patch
+    - 215.patch
+    - ECL_WITH_LISP_FPE.patch
+    - prevent-floating-point-exception.patch
+  * Add lintian override for library-not-linked-against-libc.
+
+ -- Tobias Hansen <thansen@debian.org>  Sat, 04 Dec 2021 10:12:16 +0000
 
 ecl (20.4.24+ds-2) unstable; urgency=medium
 

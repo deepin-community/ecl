@@ -257,8 +257,7 @@ ecl_read_object_with_delimiter(cl_object in, int delimiter, int flags,
         */
         cl_object name = cl_copy_seq(token);
         unlikely_if (Null(the_env->packages_to_be_created_p)) {
-          FEerror("There is no package with the name ~A.",
-                  1, name);
+          FEerror("There is no package with the name ~A.", 1, name);
         }
         p = _ecl_package_to_be_created(the_env, name);
       }
@@ -307,8 +306,7 @@ ecl_read_object_with_delimiter(cl_object in, int delimiter, int flags,
       break;
     }
     unlikely_if (ecl_invalid_character_p(c) && !suppress) {
-      FEreader_error("Found invalid character ~:C", in,
-                     1, ECL_CODE_CHAR(c));
+      FEreader_error("Found invalid character ~:C", in, 1, ECL_CODE_CHAR(c));
     }
     if (read_case != ecl_case_preserve) {
       if (ecl_upper_case_p(c)) {
@@ -498,16 +496,18 @@ cl_object backquote_reader(cl_object in, cl_object c)
 }
 
 /*
-  read_constituent(in) reads a sequence of constituent characters from
-  stream in and places it in token.  As a help, it returns TRUE
-  or FALSE depending on the value of *READ-SUPPRESS*.
+  read_constituent(in, 0) reads a sequence of constituent characters from stream
+  in and places it in token.  As a help, it returns TRUE or FALSE depending on
+  the value of *READ-SUPPRESS*.
+
+  The flag not_first is used by some reader macros to signify, that it is not a
+  standalone token. For example #x123 calls read_constituent(in, 1) for "123".
 */
 static cl_object
-read_constituent(cl_object in)
+read_constituent(cl_object in, bool not_first)
 {
   int store = !read_suppress;
   cl_object rtbl = ecl_current_readtable();
-  bool not_first = 0;
   cl_object token = si_get_buffer_string();
   do {
     int c = ecl_read_char(in);
@@ -562,8 +562,7 @@ dispatch_reader_fun(cl_object in, cl_object dc)
   int c = ecl_char_code(dc);
   ecl_readtable_get(readtable, c, &dispatch_table);
   unlikely_if (!ECL_HASH_TABLE_P(dispatch_table))
-    FEreader_error("~C is not a dispatching macro character",
-                   in, 1, dc);
+    FEreader_error("~C is not a dispatching macro character", in, 1, dc);
   return dispatch_macro_character(dispatch_table, in, c, TRUE);
 }
 
@@ -615,7 +614,7 @@ single_quote_reader(cl_object in, cl_object c)
 }
 
 static cl_object
-void_reader(cl_object in, cl_object c)
+void_reader3(cl_object in, cl_object c, cl_object f)
 {
   /*  no result  */
   @(return);
@@ -766,6 +765,14 @@ sharp_Y_reader(cl_object in, cl_object c, cl_object d)
   x = ECL_CONS_CDR(x);
   rv->bytecodes.data = nth;
 
+  nth = ECL_CONS_CAR(x);
+  x = ECL_CONS_CDR(x);
+  rv->bytecodes.flex = nth;
+
+  nth = ECL_CONS_CAR(x);
+  x = ECL_CONS_CDR(x);
+  rv->bytecodes.nlcl = nth;
+
   if (ECL_ATOM(x)) {
     nth = ECL_NIL;
   } else {
@@ -910,7 +917,7 @@ sharp_asterisk_reader(cl_object in, cl_object c, cl_object d)
   enum ecl_chattrib a;
 
   if (read_suppress) {
-    read_constituent(in);
+    read_constituent(in, 1);
     @(return ECL_NIL);
   }
   for (dimcount = 0 ;; dimcount++) {
@@ -947,7 +954,7 @@ sharp_asterisk_reader(cl_object in, cl_object c, cl_object d)
   last = ECL_STACK_REF(env,-1);
   x = ecl_alloc_simple_vector(dim, ecl_aet_bit);
   for (i = 0; i < dim; i++) {
-    elt = (i < dimcount) ? env->stack[sp+i] : last;
+    elt = (i < dimcount) ? env->run_stack.org[sp+i] : last;
     if (elt == ecl_make_fixnum(0))
       x->vector.self.bit[i/CHAR_BIT] &= ~(0200 >> i%CHAR_BIT);
     else
@@ -962,7 +969,6 @@ sharp_colon_reader(cl_object in, cl_object ch, cl_object d)
 {
   cl_object rtbl = ecl_current_readtable();
   enum ecl_chattrib a;
-  bool escape_flag;
   int c;
   cl_object output, token;
 
@@ -970,7 +976,6 @@ sharp_colon_reader(cl_object in, cl_object ch, cl_object d)
     extra_argument(':', in, d);
   c = ecl_read_char_noeof(in);
   a = ecl_readtable_get(rtbl, c, NULL);
-  escape_flag = FALSE;
   token = si_get_buffer_string();
   goto L;
   for (;;) {
@@ -984,9 +989,7 @@ sharp_colon_reader(cl_object in, cl_object ch, cl_object d)
     if (a == cat_single_escape) {
       c = ecl_read_char_noeof(in);
       a = cat_constituent;
-      escape_flag = TRUE;
     } else if (a == cat_multiple_escape) {
-      escape_flag = TRUE;
       for (;;) {
         c = ecl_read_char_noeof(in);
         a = ecl_readtable_get(rtbl, c, NULL);
@@ -1030,7 +1033,7 @@ sharp_dot_reader(cl_object in, cl_object c, cl_object d)
   if (read_suppress) {
     @(return ECL_NIL);
   }
-  unlikely_if (ecl_symbol_value(@'*read-eval*') == ECL_NIL)
+  unlikely_if (ecl_cmp_symbol_value(env, @'*read-eval*') == ECL_NIL)
     FEreader_error("Cannot evaluate the form #.~A", in, 1, c);
   /* FIXME! We should do something here to ensure that the #.
    * only uses the #n# that have been defined */
@@ -1044,7 +1047,9 @@ read_number(cl_object in, int radix, cl_object macro_char)
 {
   cl_index i;
   cl_object x;
-  cl_object token = read_constituent(in);
+  /* read_constituent is called with not_first=true, because we are called by
+     reader macros for composite tokens, like #x123. -- jd 2024-05-12 */
+  cl_object token = read_constituent(in, 1);
   if (token == ECL_NIL) {
     x = ECL_NIL;
   } else {
@@ -1104,9 +1109,6 @@ sharp_R_reader(cl_object in, cl_object c, cl_object d)
   }
   @(return (read_number(in, radix, ECL_CODE_CHAR('R'))));
 }
-
-#define sharp_A_reader void_reader
-#define sharp_S_reader void_reader
 
 static cl_object
 sharp_eq_reader(cl_object in, cl_object c, cl_object d)
@@ -1258,6 +1260,7 @@ do_patch_sharp(cl_object x, cl_object table)
     x->bytecodes.name = do_patch_sharp(x->bytecodes.name, table);
     x->bytecodes.definition = do_patch_sharp(x->bytecodes.definition, table);
     x->bytecodes.data = do_patch_sharp(x->bytecodes.data, table);
+    x->bytecodes.flex = do_patch_sharp(x->bytecodes.flex, table);
     break;
   }
   default:;
@@ -1285,11 +1288,8 @@ patch_sharp(const cl_env_ptr the_env, cl_object x)
   }
 }
 
-#define sharp_plus_reader void_reader
-#define sharp_minus_reader void_reader
-#define sharp_less_than_reader void_reader
-#define sharp_whitespace_reader void_reader
-#define sharp_right_parenthesis_reader void_reader
+#define sharp_plus_reader void_reader3
+#define sharp_minus_reader void_reader3
 
 static cl_object
 sharp_vertical_bar_reader(cl_object in, cl_object ch, cl_object d)
@@ -1319,12 +1319,6 @@ sharp_vertical_bar_reader(cl_object in, cl_object ch, cl_object d)
   }
   /*  no result  */
   @(return);
-}
-
-static cl_object
-default_dispatch_macro_fun(cl_object in, cl_object c, cl_object d)
-{
-  FEreader_error("No dispatch function defined for character ~s.", in, 1, c);
 }
 
 /*
@@ -1427,8 +1421,7 @@ ecl_current_readtable(void)
   r = ECL_SYM_VAL(the_env, @'*readtable*');
   unlikely_if (!ECL_READTABLEP(r)) {
     ECL_SETQ(the_env, @'*readtable*', cl_core.standard_readtable);
-    FEerror("The value of *READTABLE*, ~S, was not a readtable.",
-            1, r);
+    FEerror("The value of *READTABLE*, ~S, was not a readtable.", 1, r);
   }
   return r;
 }
@@ -1599,7 +1592,8 @@ do_read_delimited_list(int d, cl_object in, bool proper_list)
   if (!ECL_ANSI_STREAM_P(strm)) {
     value0 = _ecl_funcall2(@'gray::stream-read-line', strm);
     value1 = ecl_nth_value(the_env, 1);
-    if (Null(value0) && !Null(value1)) {
+    if ((Null(value0) || (ECL_STRINGP(value0) && (ecl_length(value0) == 0))) &&
+        !Null(value1)) {
       if (!Null(eof_errorp))
         FEend_of_file(strm);
       value0 = eof_value;
@@ -1747,12 +1741,12 @@ do_read_delimited_list(int d, cl_object in, bool proper_list)
   cl_object c;
   @
   c = ecl_read_byte(binary_input_stream);
-  if (c == ECL_NIL) {
+  if (c == OBJNULL) {
     if (Null(eof_errorp)) {
       @(return eof_value);
     }
     else
-        FEend_of_file(binary_input_stream);
+      FEend_of_file(binary_input_stream);
   }
   @(return c);
   @)
@@ -1794,9 +1788,7 @@ cl_readtable_case(cl_object r)
 static void
 error_locked_readtable(cl_object r)
 {
-  cl_error(2,
-           ecl_make_constant_base_string("Cannot modify locked readtable ~A.",-1),
-           r);
+  cl_error(2, @"Cannot modify locked readtable ~A.", r);
 }
 
 cl_object
@@ -2031,8 +2023,8 @@ extra_argument(int c, cl_object stream, cl_object d)
 }
 
 
-#define make_cf2(f)     ecl_make_cfun((f), ECL_NIL, NULL, 2)
-#define make_cf3(f)     ecl_make_cfun((f), ECL_NIL, NULL, 3)
+#define make_cf2(f)     ecl_make_cfun((cl_objectfn_fixed)(f), ECL_NIL, NULL, 2)
+#define make_cf3(f)     ecl_make_cfun((cl_objectfn_fixed)(f), ECL_NIL, NULL, 3)
 
 void
 init_read(void)
@@ -2080,8 +2072,6 @@ init_read(void)
   ecl_readtable_set(r, '`', cat_terminating,
                     make_cf2(backquote_reader));
   ecl_readtable_set(r, '|', cat_multiple_escape, ECL_NIL);
-
-  cl_core.default_dispatch_macro = make_cf3(default_dispatch_macro_fun);
 
   cl_make_dispatch_macro_character(3, ECL_CODE_CHAR('#'),
                                    ECL_T /* non terminating */, r);
@@ -2335,6 +2325,8 @@ ecl_init_module(cl_object block, void (*entry_point)(cl_object))
     cl_index bds_ndx;
     cl_object progv_list;
 
+    ecl_bds_bind(env, @'*package*', ecl_cmp_symbol_value(env, @'*package*'));
+    ecl_bds_bind(env, @'*readtable*', ecl_cmp_symbol_value(env, @'*readtable*'));
     ecl_bds_bind(env, @'si::*cblock*', block);
     env->packages_to_be_created_p = ECL_T;
 
@@ -2379,13 +2371,11 @@ ecl_init_module(cl_object block, void (*entry_point)(cl_object))
     {
       unlikely_if (block->cblock.data_text == NULL) {
         unlikely_if (len > 0)
-          FEreader_error("Not enough data while loading"
-                         "binary file", in, 0);
+          FEreader_error("Not enough data while loading binary file", in, 0);
       } else {
         cl_object v = si_deserialize(*(block->cblock.data_text));
         unlikely_if (v->vector.dim < len)
-          FEreader_error("Not enough data while loading"
-                         "binary file", in, 0);
+          FEreader_error("Not enough data while loading binary file", in, 0);
         memcpy(VV, v->vector.self.t, perm_len * sizeof(cl_object));
         memcpy(VVtemp, v->vector.self.t + perm_len, temp_len * sizeof(cl_object));
       }
@@ -2415,8 +2405,7 @@ ecl_init_module(cl_object block, void (*entry_point)(cl_object))
     }
     ecl_bds_unwind(env, bds_ndx);
     unlikely_if (i < len)
-      FEreader_error("Not enough data while loading"
-                     "binary file", in, 0);
+      FEreader_error("Not enough data while loading binary file", in, 0);
     cl_close(1,in);
     in = OBJNULL;
 #endif
@@ -2431,11 +2420,13 @@ ecl_init_module(cl_object block, void (*entry_point)(cl_object))
       cl_index location = ecl_fixnum(prototype->name);
       cl_object position = prototype->file_position;
       int narg = prototype->narg;
-      VV[location] = narg<0?
-        ecl_make_cfun_va((cl_objectfn)prototype->entry,
-                         fname, block, -narg - 1) :
-        ecl_make_cfun((cl_objectfn_fixed)prototype->entry,
-                      fname, block, narg);
+      if (prototype->t == t_cfunfixed) {
+        VV[location] = ecl_make_cfun((cl_objectfn_fixed)prototype->entry,
+                                     fname, block, narg);
+      } else {
+        VV[location] = ecl_make_cfun_va((cl_objectfn)prototype->entry,
+                                        fname, block, narg);
+      }
       /* Add source file info */
       if (position != ecl_make_fixnum(-1)) {
         ecl_set_function_source_file_info(VV[location],
@@ -2461,7 +2452,7 @@ ecl_init_module(cl_object block, void (*entry_point)(cl_object))
       block->cblock.temp_data_size = 0;
       ecl_dealloc(VVtemp);
     }
-    ecl_bds_unwind1(env);
+    ecl_bds_unwind_n(env, 3);
   } ECL_UNWIND_PROTECT_THREAD_SAFE_EXIT {
     if (in != OBJNULL)
       cl_close(1,in);

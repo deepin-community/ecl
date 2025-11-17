@@ -113,7 +113,7 @@ si_generic_function_p(cl_object x)
 static cl_object
 fill_spec_vector(cl_object vector, cl_object frame, cl_object gf)
 {
-  cl_object *args = frame->frame.base;
+  cl_object *args = ECL_STACK_FRAME_PTR(frame);
   cl_index narg = frame->frame.size;
   cl_object spec_how_list = GFUN_SPEC(gf);
   cl_object *argtype = vector->vector.self.t;
@@ -121,24 +121,24 @@ fill_spec_vector(cl_object vector, cl_object frame, cl_object gf)
   argtype[0] = gf;
   loop_for_on_unsafe(spec_how_list) {
     cl_object spec_how = ECL_CONS_CAR(spec_how_list);
-    cl_object spec_type = ECL_CONS_CAR(spec_how);
-    int spec_position = ecl_fixnum(ECL_CONS_CDR(spec_how));
+    cl_object spec_eql = ECL_CONS_CDR(spec_how);
     cl_object eql_spec;
-    unlikely_if (spec_position >= narg)
+    cl_object this_arg;
+    unlikely_if (spec_no > narg)
       FEwrong_num_arguments(gf);
     unlikely_if (spec_no >= vector->vector.dim)
-      ecl_internal_error("Too many arguments to fill_spec_vector()");
-    /* Need to differentiate between EQL specializers and
-       class specializers, because the EQL value can be a
-       class, and may clash with a class specializer.
-       Store the cons cell containing the EQL value. */
-    if (ECL_LISTP(spec_type) &&
-        !Null(eql_spec = ecl_memql(args[spec_position], spec_type))) {
+      ecl_internal_error("Too many arguments to fill_spec_vector().");
+    unlikely_if (!ECL_LISTP(spec_eql))
+      ecl_internal_error("Invalid GF specialization profile.");
+    this_arg = args[spec_no-1];
+    /* Need to differentiate between EQL specializers and class specializers,
+       because the EQL value can be a class, and may clash with a class
+       specializer.  Store the cons cell containing the EQL value. */
+    if (!Null(eql_spec = ecl_memql(this_arg, spec_eql))) {
       argtype[spec_no++] = eql_spec;
     } else {
-      argtype[spec_no++] = cl_class_of(args[spec_position]);
+      argtype[spec_no++] = cl_class_of(this_arg);
     }
-
   } end_loop_for_on_unsafe(spec_how_list);
   vector->vector.fillp = spec_no;
   return vector;
@@ -148,8 +148,8 @@ static cl_object
 frame_to_list(cl_object frame)
 {
   cl_object arglist, *p;
-  for (p = frame->frame.base + frame->frame.size, arglist = ECL_NIL;
-       p != frame->frame.base; ) {
+  cl_object *base = ECL_STACK_FRAME_PTR(frame);
+  for (p = base + frame->frame.size, arglist = ECL_NIL; p != base; ) {
     arglist = CONS(*(--p), arglist);
   }
   return arglist;
@@ -159,8 +159,8 @@ static cl_object
 frame_to_classes(cl_object frame)
 {
   cl_object arglist, *p;
-  for (p = frame->frame.base + frame->frame.size, arglist = ECL_NIL;
-       p != frame->frame.base; ) {
+  cl_object *base = ECL_STACK_FRAME_PTR(frame);
+  for (p = base + frame->frame.size, arglist = ECL_NIL; p != base; ) {
     arglist = CONS(cl_class_of(*(--p)), arglist);
   }
   return arglist;
@@ -170,10 +170,9 @@ static cl_object
 generic_compute_applicable_method(cl_env_ptr env, cl_object frame, cl_object gf)
 {
   /* method not cached */
-  cl_object memoize;
   cl_object methods = _ecl_funcall3(@'clos::compute-applicable-methods-using-classes',
                                     gf, frame_to_classes(frame));
-  unlikely_if (Null(memoize = env->values[1])) {
+  unlikely_if (Null(env->values[1])) {
     cl_object arglist = frame_to_list(frame);
     methods = _ecl_funcall3(@'compute-applicable-methods',
                             gf, arglist);
@@ -218,18 +217,6 @@ _ecl_standard_dispatch(cl_object frame, cl_object gf)
   const cl_env_ptr env = frame->frame.env;
   ecl_cache_ptr cache = env->method_cache;
   ecl_cache_record_ptr e;
-  /*
-   * We have to copy the frame because it might be stored in cl_env.values
-   * which will be wiped out by the next function call. However this only
-   * happens when we cannot reuse the values in the C stack.
-   */
-  struct ecl_stack_frame frame_aux;
-  if (frame->frame.stack == (void*)0x1) {
-    const cl_object new_frame = (cl_object)&frame_aux;
-    ECL_STACK_FRAME_COPY(new_frame, frame);
-    frame = new_frame;
-  }
-
   ECL_WITHOUT_INTERRUPTS_BEGIN(env) {
     vector = fill_spec_vector(cache->keys, frame, gf);
     e = ecl_search_cache(cache);
@@ -253,12 +240,9 @@ _ecl_standard_dispatch(cl_object frame, cl_object gf)
   } ECL_WITHOUT_INTERRUPTS_END;
   if (func == ECL_NIL)
     func = cl_apply(3, @'no-applicable-method', gf, frame);
-  else
+  else {
     func = _ecl_funcall3(func, frame, ECL_NIL);
-
-  /* Only need to close the copy */
-  if (frame == (cl_object)&frame_aux)
-    ecl_stack_frame_close(frame);
+  }
   return func;
 }
 

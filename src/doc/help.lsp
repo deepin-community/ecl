@@ -4,12 +4,7 @@
 ;;;;  Copyright (c) 1984, Taiichi Yuasa and Masami Hagiya.
 ;;;;  Copyright (c) 1990, Giuseppe Attardi.
 ;;;;
-;;;;    This program is free software; you can redistribute it and/or modify
-;;;;    it under the terms of the GNU General Public License as published by
-;;;;    the Free Software Foundation; either version 2 of the License, or
-;;;;    (at your option) any later version.
-;;;;
-;;;;    See file '../Copyright' for full details.
+;;;;    See file 'LICENSE' for the copyright details.
 
 ;;;;   setdoc.lsp
 ;;;;
@@ -25,24 +20,16 @@
   ;(print symbol)
   (assert (listp args))
   (ext:annotate symbol ':lambda-list nil args)
-  (cond ((and doc (search "Syntax:" doc))
-         (setf args nil))
-        ((and doc (search "Args:" doc))
-         (setf args nil))
-        ((member kind '(macro special))
-         (setf args (format nil "Syntax: ~A" args)))
-        (t
-         (setf args (format nil "Args: ~A" args))))
   (si::set-documentation
    symbol 'function
-   (format nil "~A in ~A package:~@[~%~A~]~@[~%~A~]~%"
+   (format nil "~A in ~A package:~@[~%~A~]~%"
            (ecase kind
              (special "Special Form")
              (macro "Macro")
              (function "Function")
              (method "Generic function"))
            (package-name (symbol-package (si::function-block-name symbol)))
-           args doc)))
+           doc)))
 
 (defmacro docvar (symbol kind doc)
   (do-docvar symbol kind doc))
@@ -397,20 +384,6 @@ Otherwise, returns LIST.")
 (docfun adjustable-array-p function (array) "
 Returns T if ARRAY is adjustable; NIL otherwise.")
 
-#-boehm-gc
-(docfun allocate function (type number &optional (really-allocate nil)) "
-ECL specific.
-Sets the maximum number of pages for the type class of the ECL implementation
-type TYPE to NUMBER.  If REALLY-ALLOCATE is non-NIL, then the specified number
-of pages will be allocated immediately.")
-
-#-boehm-gc
-(docfun si::allocate-contiguous-pages function (number &optional (really-allocate nil)) "
-ECL specific.
-Sets the maximum number of pages for contiguous blocks to NUMBER.  If REALLY-
-ALLOCATE is non-NIL, then the specified number of pages will be allocated
-immediately.")
-
 #+clos
 (docfun si::allocate-gfun function (name arity hash-table) "
 ECL/CLOS specific.
@@ -422,17 +395,6 @@ methods.")
 (docfun si::allocate-instance function (class length) "
 ECL/CLOS specific.
 Allocates an istance of CLASS with LENGTH slots.")
-
-#-boehm-gc
-(docfun si::allocated-contiguous-pages function () "
-ECL specific.
-Returns the number of pages currently allocated for contiguous blocks.")
-
-#-boehm-gc
-(docfun si::allocated-pages function (type) "
-ECL specific.
-Returns the number of pages currently allocated for the type class of the ECL
-implementation type TYPE.")
 
 (docfun alpha-char-p function (char) "
 Returns T if CHAR is alphabetic; NIL otherwise.")
@@ -1495,11 +1457,6 @@ ECL specific.
 Starts garbage collection with the specified collection level.  If X is NIL,
 collects only cells.  If X is T, collects everything.")
 
-#-boehm-gc
-(docfun si::gc-time function () "
-ECL specific.
-Returns the amount of time (in 1/100 seconds) spent during garbage collection.")
-
 (docfun gcd function (&rest integers) "
 Returns the greatest common divisor of the args.")
 
@@ -1522,11 +1479,6 @@ If found, returns the value of the property.  Otherwise, returns DEFAULT.")
 (docfun get-dispatch-macro-character function (char subchar &optional (readtable *readtable*)) "
 Returns the read macro for SUBCHAR associated with the dispatch macro
 character CHAR in READTABLE.")
-
-#-boehm-gc
-(docfun si::get-hole-size function () "
-ECL specific.
-Returns as a fixnum the size of the memory hole (in pages).")
 
 (docfun get-internal-real-time function () "
 Returns the time (in 1/100 seconds) since the invocation of ECL.")
@@ -2111,11 +2063,6 @@ ECL specific.
 Returns the current maximum number of pages for the type class of the ECL
 implementation type TYPE.")
 
-#-boehm-gc
-(docfun si::maximum-contiguous-pages function () "
-ECL specific.
-Returns the current maximum number of pages for contiguous blocks.")
-
 (docfun member function (item list &key (key '#'identity) (test '#'eql) test-not) "
 Searches LIST for an element that is equal to ITEM in the sense of the TEST.
 If found, returns the sublist of LIST that begins with the element.
@@ -2300,6 +2247,15 @@ interprocess and interthread communication.")
 Evaluates FORMs in order from left to right.  If any FORM evaluates to non-
 NIL, quits and returns that (single) value.  If the last FORM is reached,
 returns whatever values it returns.")
+
+(docfun ext::octets-to-string function (input &key
+                                              (external-format :default)
+                                              (start 0)
+                                              (end nil)) "
+Decode a sequence of octets into a string according to the given
+external format. The bounding index designators start and end optionally
+denote a subsequence to be decoded.
+")
 
 (docfun output-stream-p function (stream) "
 Returns T if STREAM can handle output operations; NIL otherwise.")
@@ -2652,12 +2608,6 @@ See MAKE-PACKAGE.")
             (start2 0) (end2 (length sequence2))) "
 Replaces elements of SEQUENCE1 with the corresponding elements of SEQUENCE2.
 SEQUENCE1 may be destroyed and is returned.")
-
-#-boehm-gc
-(docfun si::reset-gc-count function () "
-ECL specific.
-Resets the counter of the garbage collector that records how many times the
-garbage collector has been called for each implementation type.")
 
 (docfun rest function (x) "
 Equivalent to CDR.")
@@ -3014,6 +2964,17 @@ Similar to STRING>=, but ignores cases.")
 Returns a copy of STRING with the specified characters removed from the right
 end.  CHAR-SPEC must be a sequence of characters.")
 
+(docfun ext::string-to-octets function (input &key
+                                              (external-format :default)
+                                              (start 0)
+                                              (end nil)
+                                              (null-terminate nil)) "
+Encode a string into a sequence of octets according to the given
+external format. The bounding index designators start and end
+optionally denote a subsequence to be encoded. If null-terminate is
+true, add a terminating null byte.
+")
+
 (docfun si::string-to-object function (string) "
 ECL specific.
 Equivalent to (READ-FROM-STRING STRING), but is much faster.")
@@ -3349,6 +3310,55 @@ Equivalent to creating a process with MP:MAKE-PROCESS, presetting it
 with MP:PROCESS-PRESET and starting with MP:PROCESS-ENABLE. Returns
 created process.")
 
+  ;; Mutexes
+  (docfun mp:make-lock function (&key name (recursive nil)) "
+Creates a lock named NAME. If RECURSIVE is T then lock is reentrant.")
+
+  (docfun mp:recursive-lock-p function (lock) "
+Returns T if LOCK is reentrant, NIL otherwise.")
+
+  (docfun mp:holding-lock-p function (lock) "
+Returns T if the current thread holds LOCK, NIL otherwise.")
+
+  (docfun mp:lock-name function (lock) "
+Returns the name of LOCK.")
+
+  (docfun mp:lock-owner function (lock) "
+Returns the process owning LOCK. If the lock is not grabbed then
+returns NIL. For testing whether the current thread is holding the
+lock use MP:HOLDING-LOCK-P.")
+
+  (docfun mp:lock-count function (lock) "
+Returns number of processes waiting for LOCK.")
+
+  (docfun mp:get-lock function (lock &optional (waitp t)) "
+Tries to acquire LOCK. If WAITP is T (a default value), function
+blocks until the lock may be acquired, otherwise it returns
+immedietely. Returns T when the operation is successful, NIL
+otherwise.")
+
+  (docfun mp:giveup-lock function (lock) "
+Releases LOCK.")
+
+  ;; Condition variable interface
+  (docfun mp:make-condition-variable function () "
+Creates a condition variable.")
+
+  (docfun mp:condition-variable-wait function (cv lock) "
+Release LOCK and suspend thread until condition
+MP:CONDITION-VARIABLE-SIGNAL is called on CV. When thread resumes,
+re-acquire LOCK.")
+
+  (docfun mp:condition-variable-timedwait function (cv lock timeout) "
+Same as MP:CONDITION-VARIABLE-WAIT but with TIMEOUT. If operation is
+not complete before TIMEOUT seconds signals EXT:TIMEOUT.")
+
+  (docfun mp:condition-variable-signal function (cv) "
+Signal CV (wakes up only one waiter).")
+
+  (docfun mp:condition-variable-broadcast function (cv) "
+Signal CV (wakes up all waiters).")
+
   ;; Semaphore interface
   (docfun mp:make-semaphore function (&key name count) "
 Creates a counting semaphore NAME with a resource count COUNT.")
@@ -3368,7 +3378,32 @@ Tries to get a SEMAPHORE (non-blocking). If there is no resource left returns
 NIL, otherwise returns resource count before semaphore was acquired.")
 
   (docfun mp:signal-semaphore function (semaphore &optional (count 1)) "
-Releases COUNT units of a resource on SEMAPHORE."))
+Releases COUNT units of a resource on SEMAPHORE.")
+
+  ;; Mailboxes
+  (docfun mp:make-mailbox function (&key name (count 128)) "")
+  (docfun mp:mailbox-name function (mailbox) "")
+  (docfun mp:mailbox-empty-p function (mailbox) "")
+  (docfun mp:mailbox-read function (mailbox) "")
+  (docfun mp:mailbox-try-read function (mailbox) "")
+  (docfun mp:mailbox-send function (mailbox) "")
+  (docfun mp:mailbox-try-send function (mailbox) "")
+
+  ;; Barriers
+  (docfun mp:make-barrier function (count &key name) "")
+  (docfun mp:barrier-name function (barrier) "")
+  (docfun mp:barrier-count function (barrier) "")
+  (docfun mp:barrier-arrivers-count function (barrier) "")
+  (docfun mp:barrier-wait function (barrier) "")
+  (docfun mp:barrier-unblock function (barrier &key reset-count disable kill-waiting) "")
+
+  ;; RW-locks
+  (docfun mp:make-rwlock function (&key name) "")
+  (docfun mp:rwlock-name function (&key name) "")
+  (docfun mp:giveup-rwlock-read function (lock) "")
+  (docfun mp:giveup-rwlock-write function (lock) "")
+  (docfun mp:get-rwlock-read function (lock &optional (waitp t)) "")
+  (docfun mp:get-rwlock-write function (lock &optional (waitp t)) ""))
 
 #||
 ;;; ----------------------------------------------------------------------

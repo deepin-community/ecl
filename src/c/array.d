@@ -420,7 +420,7 @@ ecl_aset1(cl_object x, cl_index index, cl_object value)
 /*
   Internal function for making arrays of more than one dimension:
 
-  (si:make-pure-array dimension-list element-type adjustable
+  (si:make-pure-array element-type dimension-list adjustable
   displaced-to displaced-index-offset)
 */
 cl_object
@@ -480,6 +480,21 @@ si_make_pure_array(cl_object etype, cl_object dims, cl_object adj,
   else
     ecl_displace(x, displ, disploff);
   @(return x);
+}
+
+/* Internal internal function for making simple actually adjustable vectors. */
+cl_object
+ecl_make_vector(cl_index dim)
+{
+  cl_object x = ecl_alloc_object(t_vector);
+  x->vector.elttype = ecl_aet_object;
+  x->vector.self.t = NULL;
+  x->vector.displaced = ECL_NIL;
+  x->vector.dim = dim;
+  x->vector.fillp = 0;
+  x->vector.flags = ECL_FLAG_ADJUSTABLE | ECL_FLAG_HAS_FILL_POINTER;
+  ecl_array_allocself(x);
+  return x;
 }
 
 /*
@@ -548,6 +563,23 @@ si_make_vector(cl_object etype, cl_object dim, cl_object adj,
   else
     ecl_displace(x, displ, disploff);
   @(return x);
+}
+
+cl_object
+si_adjust_vector(cl_object vector, cl_object new_dim) {
+  cl_object new_vector;
+  if (!ECL_ADJUSTABLE_ARRAY_P(vector)) {
+    FEerror("The vector is not adjustable.", 0);
+  }
+  new_vector = si_make_vector(ecl_elttype_to_symbol(ecl_array_elttype(vector)),
+                              new_dim,
+                              ECL_T,
+                              ecl_make_fixnum(vector->vector.fillp),
+                              ECL_NIL,
+                              ECL_NIL);
+  ecl_copy_subarray(new_vector, 0, vector, 0, vector->vector.dim);
+  si_replace_array(vector, new_vector);
+  return vector;
 }
 
 cl_object *
@@ -695,7 +727,7 @@ ecl_symbol_to_elttype(cl_object x)
   else if (x == @'ext::integer64')
     return(ecl_aet_i64);
 #endif
-  else if (x == @'t')
+  else if (x == ECL_T)
     return(ecl_aet_object);
   else if (x == ECL_NIL) {
     FEerror("ECL does not support arrays with element type NIL", 0);
@@ -1187,7 +1219,7 @@ si_fill_pointer_set(cl_object a, cl_object fp)
 
   (si:replace-array old-array new-array).
 
-  Used in ADJUST-ARRAY.
+  Used in ADJUST-ARRAY and SI:ADJUST-VECTOR.
 */
 cl_object
 si_replace_array(cl_object olda, cl_object newa)

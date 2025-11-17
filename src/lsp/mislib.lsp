@@ -6,12 +6,7 @@
 ;;;;  Copyright (c) 1990, Giuseppe Attardi.
 ;;;;  Copyright (c) 2001, Juan Jose Garcia Ripoll.
 ;;;;
-;;;;    This program is free software; you can redistribute it and/or
-;;;;    modify it under the terms of the GNU Library General Public
-;;;;    License as published by the Free Software Foundation; either
-;;;;    version 2 of the License, or (at your option) any later version.
-;;;;
-;;;;    See file '../Copyright' for full details.
+;;;;    See file 'LICENSE' for the copyright details.
 
 (in-package "SYSTEM")
 
@@ -251,7 +246,7 @@ Universal Time UT, which defaults to the current time."
                         #.(encode-universal-time 0 0 0 1 1 2033 0))
                     (- universal-time (encode-universal-time 0 0 0 1 1 year 0) utc-1-1-1970)))))
     #-ecl-min
-    (ffi::c-inline (unix-time) (:unsigned-long-long) :bool "
+    (ffi::c-inline (unix-time) (#+long-long :unsigned-long-long #-long-long :unsigned-long) :bool "
 {
         time_t when = (#0);
         struct tm *ltm = localtime(&when);
@@ -297,12 +292,13 @@ where CREATED is true only if we succeeded on creating all directories."
       (dolist (item (pathname-directory full-pathname))
         (setf d (nconc d (list item)))
         (let* ((p (make-pathname :directory d :defaults *default-pathname-defaults*)))
-          (unless (or (symbolp item) (si::file-kind p nil))
-            (setf created t)
-            (let ((ps (namestring p)))
-              (when verbose
-                (format t "~%;;; Making directory ~A" ps))
-              (si::mkdir ps mode)))))
+          (unless (symbolp item)
+            (let* ((ps (namestring p))
+                   (newly-created (si::mkdir ps mode)))
+              (when newly-created
+                (setf created t)
+                (when verbose
+                  (format t "~%;;; Making directory ~A" ps)))))))
       (values pathname created))))
 
 (defmacro with-hash-table-iterator ((iterator package) &body body)
