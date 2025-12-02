@@ -8,7 +8,7 @@ dnl  AUTOCONF configuration for ECL
 dnl  Giuseppe Attardi 25.1.1994
 dnl
 
-AC_INIT([ecl],[20.4.24],[])
+AC_INIT([ecl],[24.5.10],[])
 AC_REVISION([$Revision$])
 AC_CONFIG_SRCDIR([bare.lsp.in])
 AC_CONFIG_AUX_DIR([gmp])
@@ -76,7 +76,7 @@ AC_ARG_WITH(C-gmp,
 
 AC_ARG_WITH(system-gmp,
   AS_HELP_STRING( [--with-system-gmp],
-                  [Derpecated! See --enable-gmp]),
+                  [Deprecated! See --enable-gmp]),
   [], [with_system_gmp="auto"])
 
 AC_ARG_WITH(gmp,
@@ -317,12 +317,14 @@ AC_SUBST(CORE_LIBS, [])         dnl Locally compiled libs to link into
                                 dnl ecl/ecl_min/libecl.so and nowhere else.
 AC_SUBST(SHARED_LDFLAGS)        dnl Flags for shared libraries linker
 AC_SUBST(BUNDLE_LDFLAGS)        dnl Flags for FASL files linker
+AC_SUBST(PROGRAM_LDFLAGS)       dnl Flags for executable program linker
 AC_SUBST(EXTRA_OBJS)            dnl Extra *.o files to be compiled into libecl.a
 AC_SUBST(TARGETS, ['bin/ecl$(EXE)'])dnl Versions of ECL to be built 
 AC_SUBST(SUBDIRS, ['c doc'])        dnl Subdirectories that make should process
 AC_SUBST(LIBRARIES, [])         dnl GMP, Boehm's GC, etc
 AC_SUBST(LSP_LIBRARIES)         dnl Libraries produced by lisp translator
-AC_SUBST(LSP_FEATURES, ['*features*']) dnl Symbols to add to *FEATURES* for conditional compilation
+AC_SUBST(COMPILATION_FEATURES, ['']) dnl Symbols to add to *FEATURES* for conditional compilation
+AC_SUBST(LSP_FEATURES, ["${LSP_FEATURES} :ecl :common :common-lisp :ansi-cl :ffi :prefixed-api :cdr-14 :package-local-nicknames :clos :ecl-pde :long-float"]) dnl Symbols to add to *FEATURES* in the final executable
 
 
 dnl -----------------------------------------------------------------------
@@ -334,6 +336,8 @@ AC_CANONICAL_HOST
 dnl =====================================================================
 dnl Checks for programs
 AC_PROG_CC	      # sets variable CC
+AC_PROG_CC_C99        # checks that CC by default accepts C99 code, if not,
+                      # tries adding -std=gnu-99, if this has no effect, throws an error.
 AC_PROG_CXX           # sets variable CXX
 AC_PROG_CPP           # sets variable CPP
 AC_PROG_RANLIB        # sets variable RANLIB
@@ -352,20 +356,35 @@ ECL_CROSS_CONFIG
 ECL_GUESS_HOST_OS
 
 if test "${enable_manual}" != "no"; then
+  AC_MSG_CHECKING([whether to build the manual; finding install-info...])
   AC_PATH_PROG([INSTALL_INFO], [install-info], [])  
   if test "x${INSTALL_INFO}" = "x"; then
     if test "${enable_manual}" = "auto"; then
+      AC_MSG_RESULT([ Not building the manual: no install-info found.])
       enable_manual=no
     elif test "${enable_manual}" = "info"; then
       AC_MSG_ERROR([Unable to build the manual: install-info not found.])
     fi
-  fi
-  AC_PATH_PROG([MAKEINFO], [makeinfo], [])
-  if test "x${MAKEINFO}" = "x"; then
-    if test "${enable_manual}" = "auto"; then
-      enable_manual=no
-    else
-      AC_MSG_ERROR([Unable to build the manual: makeinfo not found.])
+  else
+    AC_MSG_RESULT([ install-info found.])
+    AC_MSG_CHECKING([for working makeinfo...])
+    AC_PATH_PROG([MAKEINFO], [makeinfo], [])
+    if test "x${MAKEINFO}" = "x"; then
+      if test "${enable_manual}" = "auto"; then
+        AC_MSG_RESULT([ Not building the manual: no makeinfo  found.])
+        enable_manual=no
+      else
+        AC_MSG_ERROR([Unable to build the manual: makeinfo not found.])
+      fi
+    elif test "x`echo \"@inlinefmtifelse{html, foo, bar}\" | makeinfo 2>&1 | grep Unknown`" != "x"; then
+        if test "${enable_manual}" = "auto"; then
+          AC_MSG_RESULT([ Not building the manual: broken/outdated makeinfo.])
+          enable_manual=no
+        else
+          AC_MSG_ERROR([Unable to build the manual: broken/outdated makeinfo.])
+        fi
+    else 
+        AC_MSG_RESULT([ Will build the manual.])
     fi
   fi
 fi
@@ -567,13 +586,15 @@ if test "${enable_threads}" = "yes" ; then
   else
     LIBS="${THREAD_LIBS} ${LIBS}"
     CFLAGS="${CFLAGS} ${THREAD_CFLAGS}"
-    ECL_POSIX_RWLOCK
+    ECL_PTHREAD_EXTENSIONS
     boehm_configure_flags="${boehm_configure_flags} ${THREAD_GC_FLAGS}"
     for k in $THREAD_OBJ; do EXTRA_OBJS="$EXTRA_OBJS ${k}.${OBJEXT}"; done
     AC_MSG_CHECKING([for thread object files])
     AC_MSG_RESULT([${THREAD_OBJ}])
     AC_DEFINE( [ECL_THREADS], [1], [Userland threads?])
   fi
+  ECL_ADD_FEATURE(threads)
+  ECL_ADD_FEATURE(ecl-read-write-lock)
 else
   boehm_configure_flags="${boehm_configure_flags} --disable-threads"
 fi
@@ -586,6 +607,8 @@ if test ${enable_boehm} = "no" ; then
   enable_smallcons="no"
 else
   ECL_BOEHM_GC
+  ECL_ADD_FEATURE(boehm-gc)
+  ECL_ADD_FEATURE(ecl-weak-hash)
 fi
 if test ${enable_smallcons} = "yes" ; then
    AC_DEFINE([ECL_SMALL_CONS], [], [ECL_SMALL_CONS])
@@ -634,12 +657,16 @@ dnl Deactivate floating point exceptions if asked to
 if test "${with_ieee_fp}" = yes; then
    with_signed_zero="yes"
    AC_DEFINE([ECL_IEEE_FP], [], [ECL_IEEE_FP])
+   ECL_ADD_FEATURE(ieee-floating-point)
 fi
 if test "${with_fpe}" != yes; then
    AC_DEFINE([ECL_AVOID_FPE_H], [], [ECL_AVOID_FPE_H])
 fi
 if test "${with_signed_zero}" = yes; then
    AC_DEFINE([ECL_SIGNED_ZERO], [], [ECL_SIGNED_ZERO])
+fi
+if test "${with_ieee_fp}" != yes -o "${with_fpe}" = yes; then
+   ECL_ADD_FEATURE(floating-point-exceptions)
 fi
 
 dnl =====================================================================
@@ -657,9 +684,9 @@ AC_CHECK_HEADERS( [fcntl.h limits.h netdb.h netinet/in.h] \
 		  [sched.h] )
 dnl !!! end autoscan
 
-AC_CHECK_HEADERS( [sys/resource.h sys/utsname.h float.h pwd.h dlfcn.h link.h] \
+AC_CHECK_HEADERS( [sys/utsname.h float.h pwd.h dlfcn.h link.h] \
                   [mach-o/dyld.h dirent.h sys/ioctl.h sys/select.h] \
-                  [sys/wait.h semaphore.h] )
+                  [sys/wait.h] )
 
 
 AC_CHECK_HEADERS([ulimit.h], [], [],
@@ -688,7 +715,7 @@ dnl AC_TYPE_OFF_T	   # DEFS off_t
 dnl AC_C_CHAR_UNSIGNED     # DEFS __CHAR_UNSIGNED__ if char is unsigned
 dnl !!! end dnled
 
-AC_C_BIGENDIAN([], [],
+AC_C_BIGENDIAN([ECL_ADD_FEATURE(big-endian)], [ECL_ADD_FEATURE(little-endian)],
   [AC_DEFINE(WORDS_BIGENDIAN, [/* EDIT! - Undefine if small endian */])])
 
 dnl ----------------------------------------------------------------------
@@ -698,7 +725,7 @@ dnl  CFLAGS="${CFLAGS} -fstrict-aliasing"
 dnl fi
 
 dnl ----------------------------------------------------------------------
-dnl Check the appropiate type for cl_fixnum/cl_index
+dnl Check the appropriate type for cl_fixnum/cl_index
 ECL_FIXNUM_TYPE
 ECL_INTEGER_TYPES
 
@@ -710,8 +737,9 @@ ECL_SSE
 ECL_COMPLEX_C99
 
 dnl -----------------------------------------------------------------------
-dnl Study the call conventions
+dnl Stack size and growth direction
 ECL_STACK_DIRECTION
+ECL_STACK_SIZE
 
 dnl =====================================================================
 dnl Checks for library functions
@@ -736,7 +764,7 @@ dnl !!! end autoscan
 
 AC_CHECK_FUNCS( [nanosleep alarm times select setenv putenv] \
                 [lstat mkstemp sigprocmask isatty tzset] \
-                [gettimeofday getrusage system] )
+                [gettimeofday getrusage system clock_gettime] )
 
 AC_CHECK_FUNCS( [expf powf logf sqrtf cosf sinf tanf sinhf coshf tanhf] \
                 [floorf ceilf fabsf frexpf ldexpf log1p log1pf log1pl] \
@@ -772,6 +800,7 @@ else
   AC_DEFINE([ECL_CXX_CORE], [1],
             [Do we use C or C++ compiler to compile ecl?])
   boehm_configure_flags="${boehm_configure_flags} --enable-cplusplus"
+  ECL_ADD_FEATURE(cxx-core)
 fi
 
 ECL_LIBATOMIC_OPS
@@ -782,6 +811,7 @@ if test ${enable_shared} = "yes"; then
   AC_DEFINE(ENABLE_DLOPEN, [1], [Allow loading dynamically linked code])
   LSP_LIBRARIES="${SHAREDPREFIX}ecl.${SHAREDEXT}"
   ECL_ADD_LISP_MODULE([dlopen])
+  ECL_ADD_FEATURE(dlopen)
 else
   enable_soname=no
   LSP_LIBRARIES="${LIBPREFIX}ecl.${LIBEXT}"
@@ -795,11 +825,13 @@ fi
 if test "${with_cmuformat}" = "yes"; then
   with_clos_streams="yes"
   AC_DEFINE([ECL_CMU_FORMAT], [1], [Use CMU Common-Lisp's FORMAT routine])
+  ECL_ADD_FEATURE(cmu-format)
 fi
 
 if test "${with_clos_streams}" = "yes"; then
   AC_DEFINE( ECL_CLOS_STREAMS, [1],
              [Allow STREAM operations to work on arbitrary objects])
+  ECL_ADD_FEATURE(clos-streams)
 fi
 
 if test "${with_cmp}" = "builtin"; then
@@ -815,7 +847,7 @@ if test "${with_tcp}" = "builtin"; then
   with_tcp=yes
 fi
 if test "${with_tcp}" = "yes"; then
-  AC_DEFINE(TCP, [1], [Network streams])
+  AC_DEFINE(ECL_TCP, [1], [Network streams])
   EXTRA_OBJS="${EXTRA_OBJS} tcp.${OBJEXT}"
   ECL_ADD_LISP_MODULE([sockets])
   LIBS="${LIBS} ${TCPLIBS}"
@@ -886,10 +918,12 @@ if test "x${enable_unicode}" != "xno"; then
       AC_DEFINE([ECL_UNICODE], [21], [Support for Unicode])
       CHAR_CODE_LIMIT=1114112
       ECL_CHARACTER=$ECL_INT32_T
-      EXTRA_OBJS="$EXTRA_OBJS unicode/ucd.o unicode/ucd-0000.o unicode/ucd-0016.o unicode/ucd-0032.o unicode/ucd-0048.o unicode/ucd-0064.o unicode/ucd-0080.o unicode/ucd-0096.o"
+      EXTRA_OBJS="$EXTRA_OBJS unicode/ucd.o unicode/ucd-0000.o unicode/ucd-0016.o unicode/ucd-0032.o unicode/ucd-0048.o unicode/ucd-0064.o unicode/ucd-0080.o unicode/ucd-0096.o unicode/ucd-0112.o unicode/ucd-0128.o unicode/ucd-0144.o"
    fi
    AC_DEFINE([ECL_UNICODE_NAMES], [1], [Link in the database of Unicode names])
    EXTRA_OBJS="$EXTRA_OBJS unicode/ucd_names_char.o unicode/ucd_names_codes.o unicode/ucd_names_pair.o unicode/ucd_names_str.o"
+	AC_CHECK_HEADERS([wchar.h])
+   ECL_ADD_FEATURE(unicode)
 else
    CHAR_CODE_LIMIT=256
    ECL_CHARACTER="int"
@@ -910,6 +944,8 @@ else
   ECL_INIT_FORM="${with_init_form}"
 fi
 
+ECL_ADD_FEATURE(${ARCHITECTURE})
+
 AC_CONFIG_FILES([
   bare.lsp
   lsp/load.lsp
@@ -929,6 +965,7 @@ AC_CONFIG_FILES([
   cmp/cmpdefs.pre:cmp/cmpdefs.lsp
   tests/config.lsp
   tests/Makefile
+  c/ecl_features.h
  ])
 
 AC_CONFIG_HEADERS([ecl/config.h:ecl/configpre.h])

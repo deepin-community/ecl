@@ -2,18 +2,13 @@
 /* vim: set filetype=c tabstop=8 shiftwidth=4 expandtab: */
 
 /*
-    cons.h -- list manipulation macros & functions
-*/
-/*
-    Copyright (c) 2011, Juan Jose Garcia-Ripoll
+ * Copyright (c) 2011, Juan Jose Garcia-Ripoll
+ *
+ * See file 'LICENSE' for the copyright details.
+ *
+ */
 
-    ECL is free software; you can redistribute it and/or
-    modify it under the terms of the GNU Library General Public
-    License as published by the Free Software Foundation; either
-    version 2 of the License, or (at your option) any later version.
-
-    See file '../Copyright' for full details.
-*/
+/* cons.h -- list manipulation macros & functions */
 
 #ifndef ECL_CONS_H
 #define ECL_CONS_H
@@ -27,6 +22,15 @@ extern "C" {
 #define Null(x)         ((x)==ECL_NIL)
 #define CONS(a,d)       ecl_cons((a),(d))
 #define ACONS(a,b,c)    ecl_cons(ecl_cons((a),(b)),(c))
+
+#ifdef ECL_SMALL_CONS
+#define ecl_cons_stack(carv,cdrv)                                       \
+        ECL_PTR_CONS(&((struct ecl_cons){.car = carv, .cdr = cdrv }))
+#else
+#define ecl_cons_stack(carv,cdrv)                                       \
+        ecl_cast_ptr(cl_object,                                         \
+                     &((struct ecl_cons){.t = t_list, .car = carv, .cdr = cdrv}))
+#endif
 
 /* BEGIN-GENERATED (gen-cons-h) */
 

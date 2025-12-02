@@ -4,12 +4,7 @@
 ;;;;
 ;;;;  Copyright (c) 2010, Juan Jose Garcia-Ripoll
 ;;;;
-;;;;    This program is free software; you can redistribute it and/or
-;;;;    modify it under the terms of the GNU Library General Public
-;;;;    License as published by the Free Software Foundation; either
-;;;;    version 2 of the License, or (at your option) any later version.
-;;;;
-;;;;    See file '../Copyright' for full details.
+;;;;    See file 'LICENSE' for the copyright details.
 
 ;;;; CMPFEATURES.LSP -- Gather a list of features from the compiler
 
@@ -17,7 +12,13 @@
 
 (defun run-and-collect (command args &optional file)
   (handler-case
-      (let ((lines (collect-lines (si:run-program-inner command args :default t))))
+      (let ((output-stream (si:run-program-inner command args :default t))
+            lines)
+        #+msvc
+        (si::stream-external-format-set
+         output-stream
+         (list (si::windows-codepage-encoding) :crlf))
+        (setf lines (collect-lines output-stream))
         (cond ((null file)
                lines)
               ((probe-file file)
@@ -58,6 +59,7 @@
      thereis (pathname-match-p base pattern-path)))
 
 (defun gather-keywords (strings patterns)
+  (declare (ignore patterns))
   (let ((strings (reduce #'append (mapcar #'split-words strings))))
     (mapcar (lambda (s)
               (intern (string-upcase s) (find-package :keyword)))
@@ -78,6 +80,10 @@ we are currently using with ECL."
     (loop with list = (mapcar #'list (mapcar #'first macros))
        with lines = (run-and-collect c::*cc*
                                      (append (c::split-program-options c::*cc-flags*)
+                                             #+msvc
+                                             (list "-P" (namestring fc)
+                                                   "-Fi" (namestring fs))
+                                             #-msvc
                                              (list "-E" (namestring fc)
                                                    "-o" (namestring fs)))
                                      fs)
@@ -101,6 +107,7 @@ we are currently using with ECL."
     ("__SUNPRO_C" :sun-c-compiler)
     ("__xlc__" :ibm-c-compiler)
     ("__xlC__" :ibm-c++-compiler)
+    ("_MSC_VER" :msvc-compiler)
 
     ;; Processor features
     ("__MMX__" :mmx)
@@ -112,6 +119,7 @@ we are currently using with ECL."
     ("__amd64" :amd64)
     ("__x86_64__" :x86-64)
     ("__X86_64__" :x86-64)
+    ("_WIN64" :x86-64)
     ("__LP64__" :lp64)
     ("_LP64" :lp64)
     ("__ILP32__" :ilp32)
@@ -147,12 +155,3 @@ we are currently using with ECL."
 
 (defun update-compiler-features (&rest args)
   (setf *compiler-features* (apply #'gather-system-features args)))
-
-#+ecl-min
-(update-compiler-features
- :executable
- #+(or windows cygwin mingw32) "build:ecl_min.exe"
- #-(or windows cygwin mingw32) "build:ecl_min")
-
-#+ecl-min
-(format t ";;; System features: ~A~%" *compiler-features*)

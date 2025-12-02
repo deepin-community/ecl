@@ -5,12 +5,7 @@
 ;;;;  Copyright (c) 1992, Giuseppe Attardi.
 ;;;;  Copyright (c) 2001, Juan Jose Garcia Ripoll.
 ;;;;
-;;;;    This program is free software; you can redistribute it and/or
-;;;;    modify it under the terms of the GNU Library General Public
-;;;;    License as published by the Free Software Foundation; either
-;;;;    version 2 of the License, or (at your option) any later version.
-;;;;
-;;;;    See file '../Copyright' for full details.
+;;;;    See file 'LICENSE' for the copyright details.
 
 (in-package "CLOS")
 
@@ -64,6 +59,7 @@
         (parse-specialized-lambda-list specialized-lambda-list)
       (multiple-value-bind (lambda-form declarations documentation)
           (make-raw-lambda name lambda-list required-parameters specializers body env)
+        (declare (ignore declarations))
         (multiple-value-bind (proto-gf proto-method)
             (prototypes-for-make-method-lambda name)
           (multiple-value-bind (fn-form options)
@@ -102,6 +98,7 @@
   (when (eq (first method-lambda) 'lambda)
     (multiple-value-bind (declarations body documentation)
         (si::find-declarations (cddr method-lambda))
+      (declare (ignore documentation))
       (let (block)
         (when (and (null (rest body))
                    (listp (setf block (first body)))
@@ -141,44 +138,47 @@
                (not (member '&allow-other-keys lambda-list)))
       (let ((x (position '&aux lambda-list)))
         (setf lambda-list
-                (append (subseq lambda-list 0 x)
-                        '(&allow-other-keys)
-                        (and x (subseq lambda-list x))
-                        nil))))
+              (append (subseq lambda-list 0 x)
+                      '(&allow-other-keys)
+                      (and x (subseq lambda-list x))
+                      nil))))
     (let* ((copied-variables '())
            (ignorable `(declare (ignorable ,@required-parameters)))
+           (block-name (si:function-block-name name))
            (class-declarations
-            (nconc (when *add-method-argument-declarations*
-                     (loop for name in required-parameters
-                        for type in specializers
-                        when (and (not (eq type t)) (symbolp type))
-                        do (push `(,name ,name) copied-variables) and
-                        nconc `((type ,type ,name)
-                                (si::no-check-type ,name))))
-                   (list (list 'si::function-block-name name))
-                   (cdar declarations)))
-           (block `(block ,(si::function-block-name name) ,@real-body))
+             (nconc (when *add-method-argument-declarations*
+                      (loop for name in required-parameters
+                            for type in specializers
+                            when (and (not (eq type t)) (symbolp type))
+                              do (push `(,name ,name) copied-variables) and
+                            nconc `((type ,type ,name)
+                                    (si::no-check-type ,name))))
+                    (list (list 'si:function-block-name block-name))
+                    (cdar declarations)))
+           (block `(block ,block-name ,@real-body))
            (method-lambda
-            ;; Remove the documentation string and insert the
-            ;; appropriate class declarations.  The documentation
-            ;; string is removed to make it easy for us to insert
-            ;; new declarations later, they will just go after the
-            ;; second of the method lambda.  The class declarations
-            ;; are inserted to communicate the class of the method's
-            ;; arguments to the code walk.
-            `(lambda ,lambda-list
-               ,@(and class-declarations `((declare ,@class-declarations)))
-               ,ignorable
-               ,(if copied-variables
-                    `(let* ,copied-variables
-                       ,ignorable
-                       ,block)
+             ;; Remove the documentation string and insert the
+             ;; appropriate class declarations.  The documentation
+             ;; string is removed to make it easy for us to insert
+             ;; new declarations later, they will just go after the
+             ;; second of the method lambda.  The class declarations
+             ;; are inserted to communicate the class of the method's
+             ;; arguments to the code walk.
+             `(lambda ,lambda-list
+                ,@(and class-declarations `((declare ,@class-declarations)))
+                ,ignorable
+                ,(if copied-variables
+                     `(let* ,copied-variables
+                        ,ignorable
+                        ,block)
                      block))))
       (values method-lambda declarations documentation))))
 
 (defun make-method-lambda (gf method method-lambda env)
+  (declare (ignore method gf))
   (multiple-value-bind (call-next-method-p next-method-p-p in-closure-p)
       (walk-method-lambda method-lambda env)
+    (declare (ignore call-next-method-p next-method-p-p))
     (values `(lambda (.combined-method-args. *next-methods*)
                (declare (special .combined-method-args. *next-methods*))
                (apply ,(if in-closure-p
@@ -190,6 +190,7 @@
 (defun add-call-next-method-closure (method-lambda)
   (multiple-value-bind (declarations real-body documentation)
       (si::find-declarations (cddr method-lambda))
+    (declare (ignore documentation))
     `(lambda ,(second method-lambda)
        ,@declarations
        (let* ((.closed-combined-method-args.
@@ -249,9 +250,9 @@
       (let ((si::*code-walker* #'code-walker))
         ;; Instead of (coerce method-lambda 'function) we use
         ;; explicitely the bytecodes compiler with an environment, no
-        ;; stepping, compiler-env-p = t and execute = nil, so that the
-        ;; form does not get executed.
-        (si::eval-with-env method-lambda env nil t nil)))
+        ;; stepping, compiler-env-p = t and mode = :compile-toplevel,
+        ;; so that the form does not get executed.
+        (si::eval-with-env method-lambda env nil t :compile-toplevel)))
     (values call-next-method-p
             next-method-p-p
             in-closure-p)))
@@ -365,9 +366,8 @@ have disappeared."
 
 (defun make-method (method-class qualifiers specializers lambda-list fun options)
   (declare (ignore options))
-  (with-early-make-instance
-      ;; We choose the largest list of slots
-      +standard-accessor-method-slots+
+  ;; We choose the largest list of slots
+  (with-early-make-instance +standard-accessor-method-slots+
     (method (if (si::instancep method-class)
                 method-class
                 (find-class method-class))
@@ -385,23 +385,26 @@ have disappeared."
 
 ;;; early version used during bootstrap
 (defun add-method (gf method)
-  (with-early-accessors (+standard-method-slots+ +standard-generic-function-slots+ +standard-class-slots+)
-    (let* ((name (slot-value gf 'name))
-           (method-entry (assoc name *early-methods*)))
-      (unless method-entry
-        (setq method-entry (list name))
-        (push method-entry *early-methods*))
-      (push method (cdr method-entry))
-      (push method (generic-function-methods gf))
-      (setf (method-generic-function method) gf)
-      (unless (si::sl-boundp (generic-function-lambda-list gf))
-        (setf (generic-function-lambda-list gf) (implicit-generic-lambda
-                                                 (method-lambda-list method)))
-        (setf (generic-function-argument-precedence-order gf)
-              (rest (si::process-lambda-list (method-lambda-list method) t))))
-      (compute-g-f-spec-list gf)
-      (set-generic-function-dispatch gf)
-      method)))
+  ;; Add the method to *EARLY-METHODS*.
+  (let* ((name (slot-value gf 'name))
+         (method-entry (assoc name *early-methods*)))
+    (unless method-entry
+      (setq method-entry (list name))
+      (push method-entry *early-methods*))
+    (push method (cdr method-entry)))
+  ;; Add the method to the generic function.
+  (with-early-accessors
+      (+standard-method-slots+ +standard-generic-function-slots+)
+    (push method (generic-function-methods gf))
+    (setf (method-generic-function method) gf)
+    (unless (si::sl-boundp (generic-function-lambda-list gf))
+      (setf (generic-function-lambda-list gf)
+            (implicit-generic-lambda (method-lambda-list method)))
+      (setf (generic-function-argument-precedence-order gf)
+            (rest (si::process-lambda-list (method-lambda-list method) t))))
+    (compute-g-f-spec-list gf)
+    (set-generic-function-dispatch gf)
+    method))
 
 (defun find-method (gf qualifiers specializers &optional (errorp t))
   (declare (notinline method-qualifiers))

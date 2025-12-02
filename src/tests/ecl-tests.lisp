@@ -22,13 +22,11 @@
 ;;;; Declare the suites
 (suite 'make-check
        '(executable ieee-fp eprocess package-ext hash-tables ansi+ mixed
-         cmp emb ffi mop run-program mp complex))
+         cmp emb ffi mop run-program mp complex wscl #+unicode unicode
+         #+clos clos))
 
 (suite 'ecl-tests
        '(make-check eformat))
-
-(suite 'stress)
-(test stress.all (finishes (1am-ecl:run)))
 
 
 (defmacro is-true (form)
@@ -92,10 +90,12 @@ allow using reader macros. The output is stored in a string and output
 as a second value."
   `(progn
      (with-open-file (s ,filename :direction :output :if-exists :supersede
-                        :if-does-not-exist :create)
-       ,@(loop for f in forms collect (if (stringp f)
-                                          `(format s "~A" ,f)
-                                          `(print ,f s))))
+                                  :if-does-not-exist :create)
+       (let ((*print-circle* t)
+             (*print-readably* t))
+         ,@(loop for f in forms collect (if (stringp f)
+                                            `(format s "~A" ,f)
+                                            `(print ,f s)))))
      (let* ((compiled-file t)
             (output
              (with-output-to-string (*standard-output*)
@@ -111,6 +111,9 @@ as a second value."
          (delete-file ,filename)
          (error "Compiling file ~a failed:~%~a" ,filename output))
        (values compiled-file output))))
+
+(defmacro cmplambda (args &body body)
+  `(compile nil '(lambda ,args ,@body)))
 
 (defmacro with-temporary-file ((var string &rest args) &body body)
   (ext:with-unique-names (stream)
@@ -134,3 +137,50 @@ as a second value."
     (double-float double-float-epsilon)
     (long-float long-float-epsilon)
     (rational 0)))
+
+(defun test-C-program (c-code &key capture-output (args '()) (environ '()))
+  (ensure-directories-exist "tmp/")
+  (with-open-file (s "tmp/ecl-aux.c" :direction :output :if-exists :supersede
+				     :if-does-not-exist :create)
+    (princ c-code s))
+  (c::compiler-cc "tmp/ecl-aux.c" "tmp/ecl-aux.o")
+  (c::linker-cc "tmp/ecl-aux.exe" '("tmp/ecl-aux.o"))
+  (let ((environment
+          (append #+windows (list (format nil "PATH=~a;~a"
+                                          (ext:getenv "PATH")
+                                          c::*ecl-library-directory*))
+                  #+cygwin (list (format nil "PATH=~a:~a"
+                                         (ext:getenv "PATH")
+                                         c::*ecl-library-directory*))
+                  #-(or windows cygwin) (list (format nil "LD_LIBRARY_PATH=~a:~a"
+                                                      (ext:getenv "LD_LIBRARY_PATH")
+                                                      c::*ecl-library-directory*))
+		  environ
+                  (ext:environ))))
+    (ecase capture-output
+      ((nil)
+       (multiple-value-bind (stream return-code)
+           (si::run-program "tmp/ecl-aux.exe" args
+                            :output t :error t
+                            :environ environment)
+         (declare (ignore stream))
+         (zerop return-code)))
+      ((string :string)
+       (multiple-value-bind (in return-code)
+           (si::run-program "tmp/ecl-aux.exe" args :output :stream :error t
+						   :environ environment)
+	 (values return-code
+		 (with-output-to-string (s)
+                   (loop with line
+			 do (setf line (read-line in nil))
+		            (unless line (return))
+		            (write-line line s))))))
+      ((t forms :forms)
+       (do* ((all '())
+             (x t)
+             (in (si::run-program "tmp/ecl-aux.exe" args :output :stream
+							 :environ environment)))
+            ((null in) all)
+         (setf x (ignore-errors (read in nil nil)))
+         (unless x (return all))
+         (push x all))))))

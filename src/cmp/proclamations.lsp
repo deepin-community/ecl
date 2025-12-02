@@ -46,19 +46,19 @@
 
 (defun parse-function-proclamation
     (name arg-types return-type &rest properties)
-  (when (sys:get-sysprop name 'proclaimed-arg-types)
+  (when (si:get-sysprop name 'proclaimed-arg-types)
     (warn "Duplicate proclamation for ~A" name))
   (proclaim-function
    name (list arg-types return-type))
   (loop for p in properties
      do (case p
           (:no-sp-change
-           (sys:put-sysprop name 'no-sp-change t))
+           (si:put-sysprop name 'no-sp-change t))
           ((:predicate :pure)
-           (sys:put-sysprop name 'pure t)
-           (sys:put-sysprop name 'no-side-effects t))
+           (si:put-sysprop name 'pure t)
+           (si:put-sysprop name 'no-side-effects t))
           ((:no-side-effects :reader)
-           (sys:put-sysprop name 'no-side-effects t))
+           (si:put-sysprop name 'no-side-effects t))
           (otherwise
            (error "Unknown property ~S in function proclamation for ~S"
                   p name)))))
@@ -85,15 +85,15 @@
 (deftype external-file-format ()
   '(or symbol list))
 (deftype declaration-specifier ()
-  "Element that can appear in a DECLARE form"
+  "Element that can appear in a DECLARE form."
   'list)
 (deftype digit-weight ()
   '(integer 0 35))
 (deftype environment ()
-  "Environment used by compiler and interpreter"
+  "Environment used by compiler and interpreter."
   'list)
 (deftype form ()
-  "Valid lisp form"
+  "Valid lisp form."
   t)
 (deftype format-control ()
   "Format control for FORMAT. It can be a string or a function returned by FORMATTER."
@@ -102,16 +102,16 @@
   "An object that denotes a function and which can be a symbol or a function."
   '(or symbol function))
 (deftype function-name ()
-  "Valid name of a function, typically a symbol or (SETF symbol)"
+  "Valid name of a function, typically a symbol or (SETF symbol)."
   '(or list symbol))
 (deftype gen-bool ()
-  "Generalized boolean type"
+  "Generalized boolean type."
   't)
 (deftype integer-length ()
-  "A type that fits maximum number of bits that an integer may have in this system"
+  "A type that fits maximum number of bits that an integer may have in this system."
   'ext:array-index)
 (deftype natural ()
-  "Non-negative number"
+  "Non-negative integer."
   '(integer 0 *))
 (deftype package-designator ()
   '(or string-designator package))
@@ -180,10 +180,10 @@
 (proclamation compile (function-name &optional (or list function))
               (values (or function-name function) gen-bool gen-bool))
 (proclamation compiler-macro-function (function-name &optional environment)
-              function)
+              (or function null))
 (proclamation constantp (t &optional environment) gen-bool)
 (proclamation eval (form) (values &rest t))
-(proclamation macro-function (symbol &optional environment) function)
+(proclamation macro-function (symbol &optional environment) (or function null))
 (proclamation macroexpand (form &optional environment) (values form gen-bool))
 (proclamation macroexpand-1 (form &optional environment) (values form gen-bool))
 (proclamation proclaim (declaration-specifier) (values &rest t))
@@ -367,7 +367,7 @@
 (proclamation compute-restarts (&optional (or null condition)) list)
 (proclamation find-restart
                    (restart-designator &optional (or null condition))
-                   restart)
+                   (or null restart))
 (proclamation invoke-restart (restart-designator &rest t)
                    (values &rest t))
 (proclamation invoke-restart-interactively (restart-designator)
@@ -432,20 +432,20 @@
 ;;; 11. PACKAGES
 ;;;
 
-(proclamation export (list &optional package-designator) t)
+(proclamation export ((or list symbol) &optional package-designator) t)
 (proclamation find-symbol (string &optional package-designator)
               (values symbol (member :inherited :external :internal nil)))
 (proclamation find-package (package-designator) (or package null))
 (proclamation find-all-symbols (string-designator) list)
-(proclamation import (list &optional package-designator) t)
+(proclamation import ((or list symbol) &optional package-designator) t)
 (proclamation list-all-packages () list)
 (proclamation rename-package (package-designator package-designator
                               &optional list) package)
-(proclamation shadow (list &optional package-designator) t)
-(proclamation shadowing-import (list &optional package-designator) t)
+(proclamation shadow ((or list string-designator) &optional package-designator) t)
+(proclamation shadowing-import ((or symbol list) &optional package-designator) t)
 (proclamation delete-package (package-designator) gen-bool)
 (proclamation make-package (string-designator &rest t) package)
-(proclamation unexport (list &optional package-designator) t)
+(proclamation unexport ((or list symbol) &optional package-designator) t)
 (proclamation unintern (symbol &optional package-designator) gen-bool)
 (proclamation unuse-package (list &optional package-designator) t)
 (proclamation use-package (list &optional package-designator) t)
@@ -562,7 +562,7 @@
 (proclamation integer-length (integer) integer-length :pure)
 (proclamation integerp (t) gen-bool :pure)
 (proclamation parse-integer (string &rest t)
-              (values integer ext:array-index)
+              (values (or integer null) ext:array-index)
               :no-side-effects)
 (proclamation boole ((integer 0 15) integer integer) integer :pure)
 (proclamation logand (&rest integer) integer :pure)
@@ -617,6 +617,13 @@
 (proclamation si:long-float-p (t) gen-bool :pure)
 #+complex-float (proclamation si:complex-float (float float) si:complex-float :pure)
 #+complex-float (proclamation si:complex-float-p (t) gen-bool :pure)
+
+(proclamation si:single-float-bits (single-float) integer :pure)
+(proclamation si:bits-single-float (integer) single-float :pure)
+(proclamation si:double-float-bits (double-float) integer :pure)
+(proclamation si:bits-double-float (integer) double-float :pure)
+(proclamation si:long-float-bits (long-float) integer :pure)
+(proclamation si:bits-long-float (integer) long-float :pure)
 
 ;; Virtual functions added by the compiler
 (proclamation shift>> (*) nil :pure)
@@ -874,6 +881,7 @@
 ;; ECL extensions
 (proclamation si:make-pure-array (t t t t t t) array)
 (proclamation si:make-vector (t t t t t t) vector)
+(proclamation si:adjust-vector (vector ext:array-index) vector)
 (proclamation si:aset (array t &rest t) t)
 (proclamation si:row-major-aset (array ext:array-index t) t)
 (proclamation si:svset (simple-vector ext:array-index t) t)
@@ -1106,7 +1114,7 @@
 (proclamation ext:mkstemp (pathname-designator) (or null pathname))
 (proclamation ext:copy-file (pathname-designator pathname-designator) gen-bool)
 
-(proclamation si:mkdir (pathname-designator unsigned-byte) string)
+(proclamation si:mkdir (pathname-designator unsigned-byte) (or string null))
 (proclamation si:rmdir (pathname-designator) null)
 
 
@@ -1122,6 +1130,8 @@
 (proclamation streamp (t) gen-bool :pure)
 (proclamation read-byte (stream &optional gen-bool t) t)
 (proclamation write-byte (integer stream) integer)
+(proclamation ext:unread-byte (stream integer) null)
+(proclamation ext:peek-byte (stream t) t)
 (proclamation peek-char (&optional (or character boolean)
                                    stream-designator
                                    gen-bool
@@ -1189,7 +1199,7 @@
 (proclamation si:open-unix-socket-stream (string) stream)
 #+wants-sockets
 (proclamation si:lookup-host-entry (t) (values (or null string) list list))
-(proclamation si:copy-stream (stream stream wait) t)
+(proclamation si:copy-stream (stream stream gen-bool) t)
 (proclamation si:make-encoding (t) hash-table)
 (proclamation si:load-encoding (t) t)
 
@@ -1363,8 +1373,7 @@
 (proclamation get-internal-run-time () unsigned-byte :no-side-effects)
 (proclamation disassemble ((or function-designator list)) null)
 (proclamation room (&optional (member t nil :default)) (values &rest t))
-(proclamation ed (&optional (or null pathname string function-name))
-              (values &rest t))
+(proclamation ed (&optional t) (values &rest t))
 (proclamation inspect (t) (values &rest t))
 (proclamation dribble (&optional pathname-designator) (values &rest t))
 (proclamation lisp-implementation-type () (or string null) :pure)
@@ -1514,8 +1523,9 @@
 #+threads (proclamation mp:semaphore-name (mp:semaphore) t :reader)
 #+threads (proclamation mp:semaphore-count (mp:semaphore) fixnum :reader)
 #+threads (proclamation mp:semaphore-wait-count (mp:semaphore) natural :reader)
-#+threads (proclamation mp:wait-on-semaphore (mp:semaphore) fixnum)
-#+threads (proclamation mp:try-get-semaphore (mp:semaphore) t)
+#+threads (proclamation mp:semaphore-wait (mp:semaphore fixnum real) t)
+#+threads (proclamation mp:wait-on-semaphore (mp:semaphore &key) t)
+#+threads (proclamation mp:try-get-semaphore (mp:semaphore &optional fixnum) t)
 #+threads (proclamation mp:signal-semaphore (mp:semaphore &optional fixnum) t)
 
 ;;;

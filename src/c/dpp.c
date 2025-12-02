@@ -85,15 +85,12 @@
 #include <ctype.h>
 #include <string.h>
 #include <stdarg.h>
-
-#if defined(_MSC_VER) && (_MSC_VER >= 1800)
 #include <stdbool.h> 
-#endif
 
 #define DPP
 #include <ecl/config.h>
 #include <ecl/config-internal.h>
-#include "symbols_list2.h"
+#include "symbols_list.h"
 
 /* #define POOLSIZE        2048 */
 #define POOLSIZE        4096
@@ -105,13 +102,6 @@
 
 #define TRUE            1
 #define FALSE           0
-
-#ifndef __cplusplus
-#if ! ( defined(__bool_true_false_are_defined) \
-        &&__bool_true_false_are_defined )
-typedef int bool;
-#endif
-#endif
 
 FILE *in, *out;
 
@@ -723,14 +713,11 @@ put_declaration(void)
   put_lineno();
   the_env_defined = 1;
   fprintf(out,
-          "#ifdef __clang__\n"
-          "#pragma clang diagnostic push\n"
-          "#pragma clang diagnostic ignored \"-Wunused-variable\"\n"
-          "#endif\n"
+          "#if defined(__clang__) || defined(__GNUC__)\n"
+          "\t__attribute__((unused)) const cl_env_ptr the_env = ecl_process_env();\n"
+          "#else\n"
           "\tconst cl_env_ptr the_env = ecl_process_env();\n"
-          "#ifdef __clang__\n"
-          "#pragma clang diagnostic pop\n"
-          "#endif\n" );
+          "#endif\n");
   for (i = 0;  i < nopt;  i++) {
     put_lineno();
     fprintf(out, "\tcl_object %s;\n", optional[i].o_var);

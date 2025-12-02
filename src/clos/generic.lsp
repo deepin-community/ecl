@@ -4,12 +4,7 @@
 ;;;;
 ;;;;  Copyright (c) 1992, Giuseppe Attardi.
 ;;;;
-;;;;    This program is free software; you can redistribute it and/or
-;;;;    modify it under the terms of the GNU Library General Public
-;;;;    License as published by the Free Software Foundation; either
-;;;;    version 2 of the License, or (at your option) any later version.
-;;;;
-;;;;    See file '../Copyright' for full details.
+;;;;    See file 'LICENSE' for the copyright details.
 
 (in-package "CLOS")
 
@@ -33,7 +28,8 @@
                 ,output
                 (associate-methods-to-gfun
                  ',function-specifier
-                 ,@(loop for m in method-list collect `(defmethod ,function-specifier ,@m))))
+                 ,@(loop for m in method-list
+                         collect `(defmethod ,function-specifier ,@m))))
             output))))))
 
 (defun parse-defgeneric (args)
@@ -181,7 +177,7 @@
 
 (defmethod shared-initialize ((gfun standard-generic-function) slot-names
                               &rest initargs)
-  (declare (ignore initargs slot-names))
+  (declare (ignore slot-names))
   (call-next-method)
   (when (generic-function-methods gfun)
     (compute-g-f-spec-list gfun))

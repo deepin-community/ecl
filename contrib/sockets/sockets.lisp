@@ -210,7 +210,7 @@ containing the whole rest of the given `string', if any."
 HOST-NAME may also be an IP address in dotted quad notation or some
 other weird stuff - see getaddrinfo(3) for details."
   (multiple-value-bind (errno canonical-name addresses aliases)
-      (c-inline (host-name) (:cstring)
+      (c-inline (host-name :test #'equalp) (:cstring :object :object)
                 (values :int :object :object :object)
                 "
 {
@@ -247,7 +247,7 @@ other weird stuff - see getaddrinfo(3) for details."
             ecl_aset(vector,1, ecl_make_fixnum( (ip>>16) & 0xFF));
             ecl_aset(vector,2, ecl_make_fixnum( (ip>>8) & 0xFF));
             ecl_aset(vector,3, ecl_make_fixnum( ip & 0xFF ));
-            addresses = cl_adjoin(4, vector, addresses, @':test, @'equalp);
+            addresses = cl_adjoin(4, vector, addresses, #1, #2);
             if ( rp->ai_canonname != 0 ) {
                 cl_object alias = ecl_make_simple_base_string( rp->ai_canonname, -1 );
                 aliases = CONS(alias, aliases);
@@ -571,17 +571,27 @@ safe_buffer_pointer(cl_object x, cl_index size)
 ;; We could refactor a lot here, if we pass sockaddr_foo structs around in Lisp. But
 ;; I do not feel comfortable with that.
 
+(define-condition unknown-protocol (error)
+  ((name :initarg :name
+         :reader unknown-protocol-name))
+  (:report (lambda (condition stream)
+             (format stream "Protocol not found: ~A"
+                     (prin1-to-string (unknown-protocol-name condition))))))
+
 (defun get-protocol-by-name (string-or-symbol)
   "Calls getprotobyname"
   #-:android
-  (let ((string (string string-or-symbol)))
-      (c-inline (string) (:cstring) :int
-                "{
-                 struct protoent *pe;
-                 pe = getprotobyname(#0);
-                 @(return 0) = pe ? pe->p_proto : -1;
-                 }
-               "))
+  (let* ((string (string string-or-symbol))
+         (proto-num (c-inline (string) (:cstring) :int
+                              "{
+                                 struct protoent *pe;
+                                 pe = getprotobyname(#0);
+                                 @(return 0) = pe ? pe->p_proto : -1;
+                               }
+               ")))
+    (if (= proto-num -1)
+      (error 'unknown-protocol :name string)
+      proto-num))
   ;; getprotobyname is not yet implemented on bionic
   #+:android
   (let ((proto (string-downcase (if (symbolp string-or-symbol)

@@ -2,19 +2,14 @@
 /* vim: set filetype=c tabstop=8 shiftwidth=4 expandtab: */
 
 /*
-    ecl.h -- Main headers for development of ECL
-*/
-/*
-    Copyright (c) 1984, Taiichi Yuasa and Masami Hagiya.
-    Copyright (c) 1990, Giuseppe Attardi.
+ * Copyright (c) 1984, Taiichi Yuasa and Masami Hagiya.
+ * Copyright (c) 1990, Giuseppe Attardi.
+ *
+ * See file 'LICENSE' for the copyright details.
+ *
+ */
 
-    ECoLisp is free software; you can redistribute it and/or
-    modify it under the terms of the GNU Library General Public
-    License as published by the Free Software Foundation; either
-    version 2 of the License, or (at your option) any later version.
-
-    See file '../Copyright' for full details.
-*/
+/* ecl.h -- Main headers for development of ECL */
 
 #ifndef ECL_ECL_H
 #define ECL_ECL_H
@@ -27,6 +22,7 @@
 #include <stdarg.h>             /* va_list */
 #include <setjmp.h>             /* setjmp and buffers */
 #include <stdio.h>              /* FILE */
+#include <stdbool.h>
 /* Microsoft VC++ does not have va_copy() */
 #if ( defined(_MSC_VER) && (_MSC_VER < 1800) ) || !defined(va_copy)
 #define va_copy(dst, src) \

@@ -3,11 +3,14 @@
 /* Define if building universal (internal helper macro) */
 #undef AC_APPLE_UNIVERSAL_BUILD
 
-/* Define to 1 if the `closedir' function returns void instead of `int'. */
+/* Define to 1 if the `closedir' function returns void instead of int. */
 #undef CLOSEDIR_VOID
 
 /* ECL_AVOID_FPE_H */
 #undef ECL_AVOID_FPE_H
+
+/* Define to 1 if we can set the stack size at runtime. */
+#undef ECL_CAN_SET_STACK_SIZE
 
 /* Allow STREAM operations to work on arbitrary objects */
 #undef ECL_CLOS_STREAMS
@@ -20,6 +23,10 @@
 
 /* Do we use C or C++ compiler to compile ecl? */
 #undef ECL_CXX_CORE
+
+/* Do the fixed and optional arguments of a variadic function use a different
+   calling convention? */
+#undef ECL_C_COMPATIBLE_VARIADIC_DISPATCH
 
 /* Stack grows downwards */
 #undef ECL_DOWN_STACK
@@ -42,9 +49,6 @@
 /* Define if your newline is CRLF */
 #undef ECL_NEWLINE_IS_CRLF
 
-/* ECL_RWLOCK */
-#undef ECL_RWLOCK
-
 /* ECL_SIGNED_ZERO */
 #undef ECL_SIGNED_ZERO
 
@@ -53,6 +57,9 @@
 
 /* ECL_SSE2 */
 #undef ECL_SSE2
+
+/* Network streams */
+#undef ECL_TCP
 
 /* Userland threads? */
 #undef ECL_THREADS
@@ -188,6 +195,9 @@
 
 /* Define to 1 if you have the `cimagl' function. */
 #undef HAVE_CIMAGL
+
+/* Define to 1 if you have the `clock_gettime' function. */
+#undef HAVE_CLOCK_GETTIME
 
 /* Define to 1 if you have the `clog' function. */
 #undef HAVE_CLOG
@@ -330,9 +340,6 @@
 /* Define to 1 if you have the `fseeko' function. */
 #undef HAVE_FSEEKO
 
-/* HAVE_GC_SET_START_CALLBACK */
-#undef HAVE_GC_SET_START_CALLBACK
-
 /* Define to 1 if you have the `getcwd' function. */
 #undef HAVE_GETCWD
 
@@ -403,9 +410,6 @@
 /* Define to 1 if you have the `memmove' function. */
 #undef HAVE_MEMMOVE
 
-/* Define to 1 if you have the <memory.h> header file. */
-#undef HAVE_MEMORY_H
-
 /* Define to 1 if you have the `memset' function. */
 #undef HAVE_MEMSET
 
@@ -436,6 +440,12 @@
 /* Define to 1 if you have the `powf' function. */
 #undef HAVE_POWF
 
+/* Define to 1 if you have the `pthread_condattr_setclock' function. */
+#undef HAVE_PTHREAD_CONDATTR_SETCLOCK
+
+/* Define to 1 if you have the `pthread_mutex_timedlock' function. */
+#undef HAVE_PTHREAD_MUTEX_TIMEDLOCK
+
 /* Define to 1 if the system has the type `pthread_rwlock_t'. */
 #undef HAVE_PTHREAD_RWLOCK_T
 
@@ -460,9 +470,6 @@
 
 /* Define to 1 if you have the `select' function. */
 #undef HAVE_SELECT
-
-/* Define to 1 if you have the <semaphore.h> header file. */
-#undef HAVE_SEMAPHORE_H
 
 /* Define to 1 if you have the `setenv' function. */
 #undef HAVE_SETENV
@@ -497,6 +504,9 @@
 
 /* Define to 1 if you have the <stdint.h> header file. */
 #undef HAVE_STDINT_H
+
+/* Define to 1 if you have the <stdio.h> header file. */
+#undef HAVE_STDIO_H
 
 /* Define to 1 if you have the <stdlib.h> header file. */
 #undef HAVE_STDLIB_H
@@ -590,6 +600,9 @@
 /* Define to 1 if you have the <vfork.h> header file. */
 #undef HAVE_VFORK_H
 
+/* Define to 1 if you have the <wchar.h> header file. */
+#undef HAVE_WCHAR_H
+
 /* Define to 1 if `fork' works. */
 #undef HAVE_WORKING_FORK
 
@@ -633,13 +646,13 @@
 /* Define to the type of arg 5 for `select'. */
 #undef SELECT_TYPE_ARG5
 
-/* Define to 1 if you have the ANSI C header files. */
+/* Define to 1 if all of the C90 standard headers exist (not just the ones
+   required in a freestanding environment). This macro is provided for
+   backward compatibility; new code need not use it. */
 #undef STDC_HEADERS
 
-/* Network streams */
-#undef TCP
-
-/* Define to 1 if you can safely include both <sys/time.h> and <time.h>. */
+/* Define to 1 if you can safely include both <sys/time.h> and <time.h>. This
+   macro is obsolete. */
 #undef TIME_WITH_SYS_TIME
 
 /* Define to 1 if your <sys/time.h> declares `struct tm'. */
@@ -730,7 +743,7 @@
 /* Define to rpl_malloc if the replacement function should be used. */
 #undef malloc
 
-/* Define to `int' if <sys/types.h> does not define. */
+/* Define as a signed integer type capable of holding a process identifier. */
 #undef pid_t
 
 /* Define to rpl_realloc if the replacement function should be used. */

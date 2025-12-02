@@ -4,12 +4,7 @@
 ;;;;
 ;;;;  Copyright (c) 2001, Juan Jose Garcia-Ripoll
 ;;;;
-;;;;    This program is free software; you can redistribute it and/or
-;;;;    modify it under the terms of the GNU Library General Public
-;;;;    License as published by the Free Software Foundation; either
-;;;;    version 2 of the License, or (at your option) any later version.
-;;;;
-;;;;    See file '../Copyright' for full details.
+;;;;    See file 'LICENSE' for the copyright details.
 
 ;;;; FFI        Symbols used in the foreign function interface
 
@@ -76,14 +71,15 @@ does not include any Lisp storage overhead."
           ((atom type)
            (error "~A is not a valid foreign type identifier" name))
           ((eq (setf name (first type)) :struct)
-           (setf size (slot-position type nil)
-                 align (apply #'max (mapcar #'(lambda (field)
-                                                (multiple-value-bind (field-size field-align)
-                                                    (size-of-foreign-type (second field))
-                                                  (declare (ignore field-size))
-                                                  field-align))
-                                            (rest type))))
-           (%align-data size align))
+           (setf size (slot-position type nil))
+           (when (rest type)
+             (setf align (apply #'max (mapcar #'(lambda (field)
+                                                  (multiple-value-bind (field-size field-align)
+                                                      (size-of-foreign-type (second field))
+                                                    (declare (ignore field-size))
+                                                    field-align))
+                                              (rest type))))
+             (%align-data size align)))
           ((eq name :array)
            (unless (and (setf size (third type)) (realp size))
              (error "Incomplete foreign type: ~S" type))
@@ -477,12 +473,13 @@ translate ASCII and binary strings."
 
 Converts a Lisp string to a foreign string. Memory should be freed
 with free-foreign-object."
-  (let ((lisp-string (string string-designator)))
-    (c-inline (lisp-string) (t) t
+  (let ((cstring (convert-to-cstring (string string-designator)))
+        (foreign-type '(* :char)))
+    (c-inline (cstring foreign-type) (t t) t
        "{
         cl_object lisp_string = #0;
         cl_index size = lisp_string->base_string.fillp;
-        cl_object output = ecl_allocate_foreign_data(@(* :char), size+1);
+        cl_object output = ecl_allocate_foreign_data(#1, size+1);
         memcpy(output->foreign.data, lisp_string->base_string.self, size);
         output->foreign.data[size] = '\\0';
         @(return) = output;
@@ -594,11 +591,10 @@ bound to this value during the execution of body."
                   0 (max 0 (1- (* nargs 3))))))
 
 ;;; FIXME! We should turn this into a closure generator that produces no code.
-#+DFFI
+#+dffi
 (defmacro def-lib-function (name args &key returning module (call :default))
   (multiple-value-bind (c-name lisp-name) (lisp-to-c-name name)
     (let* ((return-type (ffi::%convert-to-return-type returning))
-           (return-required (not (eq return-type :void)))
            (argtypes (mapcar #'(lambda (a) (ffi::%convert-to-arg-type (second a))) args)))
       `(let ((c-fun (si::find-foreign-symbol ',c-name ,module :pointer-void 0)))
         (defun ,lisp-name ,(mapcar #'first args)
@@ -834,7 +830,8 @@ reference the arguments of the function as \"#0\", \"#1\", etc.
 
 The interpreter ignores this form.  ARG-TYPES are argument types of
 the defined Lisp function and RESULT-TYPE is its return type."
-  (let ((args (mapcar #'(lambda (x) (gensym)) arg-types)))
+  (let ((args (mapcar #'(lambda (x) (declare (ignore x)) (gensym))
+                      arg-types)))
   `(defun ,name ,args
      (c-inline ,args ,arg-types ,result-type
                ,c-expression :one-liner t))))
@@ -850,7 +847,8 @@ FUNCTION-NAME.
 The interpreter ignores this form. ARG-TYPES are argument types of
 the C function and RESULT-TYPE is its return type."
   (let ((output-type :object)
-        (args (mapcar #'(lambda (x) (gensym)) arg-types)))
+        (args (mapcar #'(lambda (x) (declare (ignore x)) (gensym))
+                      arg-types)))
     (if (consp c-name)
         (setf output-type (first c-name)
               c-name (second c-name)))

@@ -2194,14 +2194,14 @@ format(format_stack fmt, cl_index start, cl_index end)
 #endif
     null_strm = 1;
   } else if (strm == ECL_T) {
-    strm = ecl_symbol_value(@'*standard-output*');
+    strm = ecl_cmp_symbol_value(the_env, @'*standard-output*');
   }
   if (ecl_stringp(strm)) {
     output = strm;
     if (!ECL_ARRAY_HAS_FILL_POINTER_P(output)) {
       cl_error(7, @'si::format-error',
                @':format-control',
-               ecl_make_constant_base_string("Cannot output to a non adjustable string.",-1),
+               @"Cannot output to a non adjustable string.",
                @':control-string', string,
                @':offset', ecl_make_fixnum(0));
     }
