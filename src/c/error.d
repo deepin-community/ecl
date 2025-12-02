@@ -50,8 +50,7 @@ ecl_internal_error(const char *s)
   int saved_errno = errno;
   fprintf(stderr, "\nInternal or unrecoverable error in:\n%s\n", s);
   if (saved_errno) {
-    fprintf(stderr, "  [%d: %s]\n", saved_errno,
-            strerror(saved_errno));
+    fprintf(stderr, "  [%d: %s]\n", saved_errno, strerror(saved_errno));
   }
   fflush(stderr);
   _ecl_dump_c_backtrace();
@@ -68,19 +67,14 @@ ecl_thread_internal_error(const char *s)
   int saved_errno = errno;
   fprintf(stderr, "\nInternal thread error in:\n%s\n", s);
   if (saved_errno) {
-    fprintf(stderr, "  [%d: %s]\n", saved_errno,
-            strerror(saved_errno));
+    fprintf(stderr, "  [%d: %s]\n", saved_errno, strerror(saved_errno));
   }
   _ecl_dump_c_backtrace();
   fprintf(stderr,
           "\nDid you forget to call `ecl_import_current_thread'?\n"
           "Exitting thread.\n");
   fflush(stderr);
-#ifdef ECL_WINDOWS_THREADS
-  ExitThread(0);
-#else
-  pthread_exit(NULL);
-#endif
+  ecl_thread_exit();
 }
 #endif
 
@@ -110,12 +104,23 @@ ecl_unrecoverable_error(cl_env_ptr the_env, const char *message)
       ecl_unwind(the_env, destination);
     }
   }
-  if (the_env->frs_org <= the_env->frs_top) {
-    destination = ecl_process_env()->frs_org;
+  if (the_env->frs_stack.org <= the_env->frs_stack.top) {
+    destination = ecl_process_env()->frs_stack.org;
     ecl_unwind(the_env, destination);
   } else {
     ecl_internal_error("\n;;;\n;;; No frame to jump to\n;;; Aborting ECL\n;;;");
   }
+}
+
+void
+ecl_miscompilation_error()
+{
+  ecl_internal_error(
+                     "***\n"
+                     "*** Encountered a code path that should have never been taken.\n"
+                     "*** This likely indicates a bug in the ECL compiler. Please contact\n"
+                     "*** the maintainers.\n"
+                     "***\n");
 }
 
 /*****************************************************************************/
@@ -158,6 +163,24 @@ CEerror(cl_object c, const char *err, int narg, ...)
  ***********************/
 
 void
+CEstack_overflow(cl_object type, cl_object limit, cl_object resume)
+{
+  cl_env_ptr the_env = ecl_process_env();
+  cl_index the_size;
+  if (!Null(resume)) resume = @"Extend stack size";
+  ECL_UNWIND_PROTECT_BEGIN(the_env) {
+    cl_cerror(6, resume, @'ext::stack-overflow', @':type', type, @':size', limit);
+  } ECL_UNWIND_PROTECT_EXIT {
+    /* reset the margin */
+    si_set_limit(type, limit);
+  } ECL_UNWIND_PROTECT_END;
+  /* resize the stack */
+  the_size = ecl_to_size(limit);
+  the_size = the_size + the_size/2;
+  si_set_limit(type, ecl_make_fixnum(the_size));
+}
+
+void
 FEprogram_error(const char *s, int narg, ...)
 {
   cl_object real_args, text;
@@ -172,7 +195,7 @@ FEprogram_error(const char *s, int narg, ...)
     cl_object stmt = ecl_symbol_value(@'si::*current-form*');
     if (stmt != ECL_NIL) {
       real_args = @list(3, stmt, text, real_args);
-      text = ecl_make_constant_base_string("In form~%~S~%~?",-1);
+      text = @"In form~%~S~%~?";
     }
   }
   si_signal_simple_error(4, 
@@ -217,8 +240,7 @@ FEreader_error(const char *s, cl_object stream, int narg, ...)
                            args_list);
   } else {
     /* Actual reader error */
-    cl_object prefix = ecl_make_constant_base_string("Reader error in file ~S, "
-                                                     "position ~D:~%",-1);
+    cl_object prefix = @"Reader error in file ~S, position ~D:~%";
     cl_object position = cl_file_position(1, stream);
     message = si_base_string_concatenate(2, prefix, message);
     args_list = cl_listX(3, stream, position, args_list);
@@ -234,9 +256,17 @@ FEreader_error(const char *s, cl_object stream, int narg, ...)
 
 
 void
-FEcannot_open(cl_object fn)
+FEcannot_open(cl_object file)
 {
-  cl_error(3, @'file-error', @':pathname', fn);
+  cl_object c_error = _ecl_strerror(errno);
+  si_signal_simple_error
+    (6, @'file-error', /* condition */
+     ECL_NIL, /* continuable */
+     @"Cannot open ~S.~%C library error: ~A", /* format */
+     cl_list(2, file, c_error), /* format args */
+     @':pathname', /* file-error options */
+     file);
+  _ecl_unexpected_return();
 }
 
 void
@@ -275,7 +305,7 @@ FEwrong_type_only_arg(cl_object function, cl_object value, cl_object type)
   struct ecl_ihs_frame tmp_ihs;
   function = cl_symbol_or_object(function);
   type = cl_symbol_or_object(type);
-  if (!Null(function) && env->ihs_top && env->ihs_top->function != function) {
+  if (!Null(function) && env->ihs_stack.top && env->ihs_stack.top->function != function) {
     ecl_ihs_push(env,&tmp_ihs,function,ECL_NIL);
   }        
   si_signal_simple_error(8,
@@ -299,7 +329,7 @@ FEwrong_type_nth_arg(cl_object function, cl_narg narg, cl_object value, cl_objec
   struct ecl_ihs_frame tmp_ihs;
   function = cl_symbol_or_object(function);
   type = cl_symbol_or_object(type);
-  if (!Null(function) && env->ihs_top && env->ihs_top->function != function) {
+  if (!Null(function) && env->ihs_stack.top && env->ihs_stack.top->function != function) {
     ecl_ihs_push(env,&tmp_ihs,function,ECL_NIL);
   }        
   si_signal_simple_error(8,
@@ -325,7 +355,7 @@ FEwrong_type_key_arg(cl_object function, cl_object key, cl_object value, cl_obje
   function = cl_symbol_or_object(function);
   type = cl_symbol_or_object(type);
   key = cl_symbol_or_object(key);
-  if (!Null(function) && env->ihs_top && env->ihs_top->function != function) {
+  if (!Null(function) && env->ihs_stack.top && env->ihs_stack.top->function != function) {
     ecl_ihs_push(env,&tmp_ihs,function,ECL_NIL);
   }        
   si_signal_simple_error(8,
@@ -344,11 +374,11 @@ FEwrong_index(cl_object function, cl_object a, int which, cl_object ndx,
 {
   const char *message1 =
     "In ~:[an anonymous function~;~:*function ~A~], "
-    "the ~*index into the object~% ~A.~%"
+    "the ~*index into the object~% ~S~%"
     "takes a value ~D out of the range ~A.";
   const char *message2 =
     "In ~:[an anonymous function~;~:*function ~A~], "
-    "the ~:R index into the object~% ~A~%"
+    "the ~:R index into the object~% ~S~%"
     "takes a value ~D out of the range ~A.";
   cl_object limit = ecl_make_integer(nonincl_limit-1);
   cl_object type = ecl_make_integer_type(ecl_make_fixnum(0), limit);
@@ -356,7 +386,7 @@ FEwrong_index(cl_object function, cl_object a, int which, cl_object ndx,
   cl_env_ptr env = ecl_process_env();
   struct ecl_ihs_frame tmp_ihs;
   function = cl_symbol_or_object(function);
-  if (!Null(function) && env->ihs_top && env->ihs_top->function != function) {
+  if (!Null(function) && env->ihs_stack.top && env->ihs_stack.top->function != function) {
     ecl_ihs_push(env,&tmp_ihs,function,ECL_NIL);
   }        
   cl_error(9,
@@ -384,6 +414,12 @@ void
 FEprint_not_readable(cl_object x)
 {
   cl_error(3, @'print-not-readable', @':object', x);
+}
+
+void
+FEtimeout()
+{
+  cl_error(1, @'ext::timeout');
 }
 
 /*************
@@ -444,11 +480,30 @@ void
 FEinvalid_function_name(cl_object fname)
 {
   cl_error(9, @'simple-type-error', @':format-control',
-           ecl_make_constant_base_string("Not a valid function name ~D.",-1),
+           @"Not a valid function name ~D.",
            @':format-arguments', cl_list(1, fname),
            @':expected-type', cl_list(2, @'satisfies', @'si::valid-function-name-p'),
            @':datum', fname);
 }
+
+#ifdef ECL_THREADS
+void
+FEerror_not_owned(cl_object lock)
+{
+  FEerror("Attempted to give up lock ~S that is not owned by process ~S",
+          2, lock, mp_current_process());
+}
+
+void
+FEunknown_lock_error(cl_object lock)
+{
+#ifdef ECL_WINDOWS_THREADS
+  FEwin32_error("When acting on lock ~A, got an unexpected error.", 1, lock);
+#else
+  FEerror("When acting on lock ~A, got an unexpected error.", 1, lock);
+#endif
+}
+#endif
 
 /*      bootstrap version                */
 static int recursive_error = 0;
@@ -465,12 +520,11 @@ universal_error_handler(cl_object continue_string, cl_object datum,
   stream = cl_core.error_output;
   if (!Null(stream)) {
     ecl_bds_bind(the_env, @'*print-readably*', ECL_NIL);
-    ecl_bds_bind(the_env, @'*print-level*', ecl_make_fixnum(3));
-    ecl_bds_bind(the_env, @'*print-length*', ecl_make_fixnum(3));
+    ecl_bds_bind(the_env, @'*print-level*', ecl_make_fixnum(4));
+    ecl_bds_bind(the_env, @'*print-length*', ecl_make_fixnum(8));
     ecl_bds_bind(the_env, @'*print-circle*', ECL_NIL);
     ecl_bds_bind(the_env, @'*print-base*', ecl_make_fixnum(10));
-    writestr_stream("\n;;; Unhandled lisp initialization error",
-                    stream);
+    writestr_stream("\n;;; Unhandled lisp initialization error", stream);
     writestr_stream("\n;;; Message:\n", stream);
     si_write_ugly_object(datum, stream);
     writestr_stream("\n;;; Arguments:\n", stream);
@@ -561,13 +615,6 @@ FEwin32_error(const char *msg, int narg, ...)
 @ {
   ecl_enable_interrupts();
   @(return funcall(4, @'si::universal-error-handler', cformat, eformat,
-                   cl_grab_rest_args(args)));
-} @)
-
-@(defun si::serror (cformat eformat &rest args)
-@ {
-  ecl_enable_interrupts();
-  @(return funcall(4, @'si::stack-error-handler', cformat, eformat,
                    cl_grab_rest_args(args)));
 } @)
 

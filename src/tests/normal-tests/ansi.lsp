@@ -46,40 +46,66 @@
     (is-true  (typep  3 '(nest (2) 3)))))
 
 
+;;; 6. Iteration
+
+;;; Regression test for #605.
+(test ansi.6.1.1.7-destructuring
+  (finishes
+   (loop with (a b) = '(1)
+         do (return (list a b))))
+  (finishes
+   (loop with (a b . rest) = '(1)
+         do (return (list a b rest))))
+  (is-equal '(1 nil 2 nil)
+            (loop with (a b) = '(1)
+                  for  (c d) = '(2)
+                  do (return (list a b c d))))
+  (is-equal '(1 nil 2 nil nil)
+            (loop with (a b . rest) = '(1)
+                  for  (c d) = '(2)
+                  do (return (list a b c d rest))))
+  (is-equal '(1 2 nil)
+            (loop for (a (b) ((c))) ='(1 (2))
+                  do (return (list a b c))))
+  (signals error
+           (loop for (a (b)) ='(1 2)
+                 do (return (list a b)))))
+
+
 ;;; 8. Structures
 (ext:with-clean-symbols
     (my-struct make-my-struct my-struct-2 make-my-struct-2 my-struct-compatible-type)
- (test ansi.8.redefine-compatible
-       (let (foo-1 foo-2 foo-3 foo-4)
-         (defstruct (my-struct (:constructor make-my-struct)) slot-1 slot-2)
-         (setq foo-1 (make-my-struct :slot-1 3 :slot-2 4))
-         (finishes (defstruct (my-struct (:constructor make-my-struct))
-                     (slot-1 nil)
-                     (slot-2 t)))
-         (setq foo-2 (make-my-struct :slot-1 3 :slot-2 4))
-         (finishes (defstruct (my-struct (:constructor make-my-struct))
-                     (slot-1 3)
-                     (slot-2 4)))
-         (setq foo-3 (make-my-struct))
-         (finishes (defstruct (my-struct (:constructor make-my-struct))
-                     (slot-1 8 :type t :read-only nil)
-                     (slot-2 8 :type t :read-only nil)))
-         (setq foo-4 (make-my-struct :slot-1 3 :slot-2 4))
-         (is (equalp foo-1 foo-2))
-         (is (equalp foo-2 foo-3))
-         (is (equalp foo-3 foo-4)))
-       (deftype my-struct-compatible-type () `(integer 0 10))
-       (defstruct (my-struct-2 (:constructor make-my-struct-2))
-         (slot-1 nil :type my-struct-compatible-type :read-only t))
-       (finishes
-        (defstruct my-struct-2
-          (slot-1 nil :type (integer 0 10) :read-only t)))
-       (finishes
-        (defstruct my-struct-2
-          (slot-1 4 :type (integer 0 10) :read-only t)))
-       (finishes
-        (defstruct my-struct-2
-          (slot-1 4 :type (integer 0 10) :read-only nil)))))
+  (test ansi.8.redefine-compatible
+        (let (foo-1 foo-2 foo-3 foo-4)
+          (defstruct (my-struct (:constructor make-my-struct)) slot-1 slot-2)
+          (setq foo-1 (make-my-struct :slot-1 3 :slot-2 4))
+          (finishes (defstruct (my-struct (:constructor make-my-struct))
+                      (slot-1 nil)
+                      (slot-2 t)))
+          (setq foo-2 (make-my-struct :slot-1 3 :slot-2 4))
+          (finishes (defstruct (my-struct (:constructor make-my-struct))
+                      (slot-1 3)
+                      (slot-2 4)))
+          (setq foo-3 (make-my-struct))
+          (finishes (defstruct (my-struct (:constructor make-my-struct))
+                      (slot-1 8 :type t :read-only nil)
+                      (slot-2 8 :type t :read-only nil)))
+          (setq foo-4 (make-my-struct :slot-1 3 :slot-2 4))
+          (is (equalp foo-1 foo-2))
+          (is (equalp foo-2 foo-3))
+          (is (equalp foo-3 foo-4)))
+        (deftype my-struct-compatible-type () `(integer 0 10))
+        (defstruct (my-struct-2 (:constructor make-my-struct-2))
+          (slot-1 nil :type my-struct-compatible-type :read-only t))
+        (finishes
+         (defstruct my-struct-2
+           (slot-1 nil :type (integer 0 10) :read-only t)))
+        (finishes
+         (defstruct my-struct-2
+           (slot-1 4 :type (integer 0 10) :read-only t)))
+        (finishes
+         (defstruct my-struct-2
+           (slot-1 4 :type (integer 0 10) :read-only nil)))))
 
 (ext:with-clean-symbols (my-struct make-my-struct)
   (test ansi.8.redefine-incompatible
@@ -204,6 +230,17 @@
     (is-equal expected-2 (format nil "~1,v,/fmt/" nil t))
     (is-equal expected-2 (format nil "~1,v:/fmt/" nil t))
     (is-equal expected-2 (format nil "~1,v,:/fmt/" nil t))))
+
+;;; Tests for correct rounding in ~e directive with k parameter
+(test ansi.22.format-e
+  (is-equal (format nil "~,2,,-1e" 0.9) "0.09e+1")
+  (is-equal (format nil "~,2,,-1e" 0.99) "0.01e+2")
+  (is-equal (format nil "~,1,,0e" 0.9) "0.9e+0")
+  (is-equal (format nil "~,1,,0e" 0.99) "0.1e+1")
+  (is-equal (format nil "~,1,,1e" 9.9) "9.9e+0")
+  (is-equal (format nil "~,1,,1e" 9.99) "1.0e+1")
+  (is-equal (format nil "~6e" 9.9) "9.9e+0")
+  (is-equal (format nil "~6e" 9.99) "1.0e+1"))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;

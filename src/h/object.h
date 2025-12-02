@@ -2,20 +2,15 @@
 /* vim: set filetype=c tabstop=8 shiftwidth=4 expandtab: */
 
 /*
-    object.h  -- Data structure definitions.
-*/
-/*
-    Copyright (c) 1984, Taiichi Yuasa and Masami Hagiya.
-    Copyright (c) 1990, Giuseppe Attardi.
-    Copyright (c) 2001, Juan Jose Garcia Ripoll.
+ * Copyright (c) 1984, Taiichi Yuasa and Masami Hagiya.
+ * Copyright (c) 1990, Giuseppe Attardi.
+ * Copyright (c) 2001, Juan Jose Garcia Ripoll.
+ *
+ * See file 'LICENSE' for the copyright details.
+ *
+ */
 
-    ECL is free software; you can redistribute it and/or
-    modify it under the terms of the GNU Library General Public
-    License as published by the Free Software Foundation; either
-    version 2 of the License, or (at your option) any later version.
-
-    See file '../Copyright' for full details.
-*/
+/* object.h  -- Data structure definitions. */
 
 #ifdef __cplusplus
 extern "C" {
@@ -28,9 +23,6 @@ extern "C" {
 #define TRUE            1       /*  boolean true value  */
 #define FALSE           0       /*  boolean false value  */
 
-#if !defined(__cplusplus) && !defined(bool)
-typedef int bool;
-#endif
 typedef unsigned char byte;
 
 /*
@@ -216,14 +208,14 @@ struct ecl_long_float {
 };
 #define ecl_long_float(o) ((o)->longfloat.value)
 
+typedef mpz_t big_num_t;
+typedef mp_limb_t ecl_limb_t;
+
 struct ecl_bignum {
         _ECL_HDR;
-        mpz_t big_num;
+        big_num_t value;
 };
-
-#define ECL_BIGNUM_DIM(x)       ((x)->big.big_num->_mp_alloc) /* number of allocated limbs */
-#define ECL_BIGNUM_SIZE(x)      ((x)->big.big_num->_mp_size)  /* number of limbs in use times sign of the bignum */
-#define ECL_BIGNUM_LIMBS(x)     ((x)->big.big_num->_mp_d)     /* pointer to array of allocated limbs */
+#define ecl_bignum(o) ((o)->big.value)
 
 struct ecl_ratio {
         _ECL_HDR;
@@ -277,24 +269,44 @@ enum ecl_stype {                /*  symbol type  */
 #define ECL_NO_TL_BINDING       ((cl_object)(1 << ECL_TAG_BITS))
 
 struct ecl_symbol {
-        _ECL_HDR2(stype, dynamic);/*  symbol type, special-variable-p */
-        cl_object value;        /*  global value of the symbol  */
-                                /*  Coincides with cons.car  */
-        cl_object gfdef;        /*  global function definition  */
-                                /*  For a macro,  */
-                                /*  its expansion function  */
-                                /*  is to be stored.  */
-                                /*  Coincides with cons.cdr  */
-        cl_object plist;        /*  property list  */
-                                /*  This field coincides with cons.car  */
-        cl_object name;         /*  print name  */
-        cl_object hpack;        /*  home package  */
-                                /*  ECL_NIL for uninterned symbols  */
+        _ECL_HDR1(stype);        /*  symbol type */
+        cl_object value;         /*  global value of the symbol  */
+        cl_object gfdef;         /*  global function definition  */
+        cl_objectfn undef_entry; /*  entry point for not fboundp
+                                  *  symbols (must match the position
+                                  *  of cfun.entry); see below for
+                                  *  more explanation */
+        cl_object macfun;        /*  macro expansion function  */
+        cl_object sfdef;         /*  global (setf f) definition */
+        cl_object plist;         /*  property list  */
+        cl_object name;          /*  print name  */
+        cl_object cname;         /*  associated C name for function
+                                  *  with exported C interface */
+        cl_object hpack;         /*  home package  */
+                                 /*  ECL_NIL for uninterned symbols  */
 #ifdef ECL_THREADS
-        cl_index binding;       /*  index into the bindings array  */
+        cl_index binding;        /*  index into the bindings array  */
 #endif
 };
+/*
+ * Undefined functions are implemented as follows.
+ *
+ * For a symbols s with a global function binding: s->symbol.gfdef
+ * points to a cfun object, f->symbol.undef_entry is unused.
+ *
+ * For a symbol without a global function binding: s->symbol.gfdef
+ * points back to s itself, s->symbol.undef_entry is set. When an
+ * attempt is made to funcall s, the entry point in
+ * s->symbol.undef_entry is called which signals an undefined-function
+ * condition. Since the_env->function is set to s->symbol.gfdef which
+ * in this case is just s itself, we know which symbol caused the
+ * error and can signal accordingly. This construction enables us to
+ * skip the check for whether a function is bound or not when
+ * funcalling.
+ */
 #define ECL_SYM_FUN(sym)        ((sym)->symbol.gfdef)
+#define ECL_FBOUNDP(sym)        ((sym)->symbol.gfdef != (sym))
+#define ECL_FMAKUNBOUND(sym)    ((sym)->symbol.gfdef = (sym))
 
 struct ecl_package {
         _ECL_HDR1(locked);
@@ -575,16 +587,18 @@ enum ecl_smmode {               /*  stream mode  */
 };
 
 struct ecl_file_ops {
-        cl_index (*write_byte8)(cl_object strm, unsigned char *c, cl_index n);
         cl_index (*read_byte8)(cl_object strm, unsigned char *c, cl_index n);
+        cl_index (*write_byte8)(cl_object strm, unsigned char *c, cl_index n);
 
-        void (*write_byte)(cl_object c, cl_object strm);
         cl_object (*read_byte)(cl_object strm);
+        void (*write_byte)(cl_object strm, cl_object byte);
+        void (*unread_byte)(cl_object strm, cl_object byte);
+        cl_object (*peek_byte)(cl_object strm);
 
-        int (*read_char)(cl_object strm);
-        int (*write_char)(cl_object strm, int c);
-        void (*unread_char)(cl_object strm, int c);
-        int (*peek_char)(cl_object strm);
+        ecl_character (*read_char)(cl_object strm);
+        ecl_character (*write_char)(cl_object strm, ecl_character c);
+        void (*unread_char)(cl_object strm, ecl_character c);
+        ecl_character (*peek_char)(cl_object strm);
 
         cl_index (*read_vector)(cl_object strm, cl_object data, cl_index start, cl_index end);
         cl_index (*write_vector)(cl_object strm, cl_object data, cl_index start, cl_index end);
@@ -603,7 +617,11 @@ struct ecl_file_ops {
         cl_object (*length)(cl_object strm);
         cl_object (*get_position)(cl_object strm);
         cl_object (*set_position)(cl_object strm, cl_object pos);
+        cl_object (*string_length)(cl_object strm, cl_object string);
         int (*column)(cl_object strm);
+
+        cl_object (*pathname)(cl_object strm);
+        cl_object (*truename)(cl_object strm);
 
         cl_object (*close)(cl_object strm);
 };
@@ -627,13 +645,19 @@ enum {
         ECL_STREAM_USER_FORMAT = 8,
         ECL_STREAM_US_ASCII = 10,
 #endif
+        /* External Format */
         ECL_STREAM_CR = 16,
         ECL_STREAM_LF = 32,
         ECL_STREAM_SIGNED_BYTES = 64,
         ECL_STREAM_LITTLE_ENDIAN = 128,
+        /* OS Streams */
         ECL_STREAM_C_STREAM = 256,
         ECL_STREAM_MIGHT_SEEK = 512,
-        ECL_STREAM_CLOSE_COMPONENTS = 1024
+        ECL_STREAM_CLOSE_ON_EXEC = 1024,
+        ECL_STREAM_NONBLOCK = 2048,
+        /* Lisp Streams */
+        ECL_STREAM_CLOSE_COMPONENTS = 4096,
+        ECL_STREAM_USE_VECTOR_FILLP = 8192
 };
 
 /* buffer points to an array of bytes ending at buffer_end. Decode one
@@ -644,6 +668,11 @@ typedef ecl_character (*cl_eformat_decoder)(cl_object stream, unsigned char **bu
 /* Encode the character c and store the result in buffer. Return the
    number of bytes used */
 typedef int (*cl_eformat_encoder)(cl_object stream, unsigned char *buffer, ecl_character c);
+
+/* Buffer is assumed to be big enough to store whole byte. The byte size is
+   stream->strm.byte_size. Decoder returns an object, encoder fills a buffer. */
+typedef cl_object (*cl_binary_decoder)(cl_object stream, unsigned char *buf);
+typedef void (*cl_binary_encoder)(cl_object stream, unsigned char *buf, cl_object byte);
 
 #define ECL_ANSI_STREAM_P(o) \
         (ECL_IMMEDIATE(o) == 0 && ((o)->d.t == t_stream))
@@ -660,18 +689,21 @@ struct ecl_stream {
         } file;
         cl_object object0;      /*  some object  */
         cl_object object1;      /*  some object */
+        cl_object last_byte;    /*  last byte read  */
+        cl_fixnum last_char;    /*  last character read  */
         cl_object byte_stack;   /*  buffer for unread bytes  */
         cl_index column;        /*  file column  */
-        cl_fixnum last_char;    /*  last character read  */
-        cl_fixnum last_code[2]; /*  actual composition of last character  */
         cl_fixnum int0;         /*  some int  */
         cl_fixnum int1;         /*  some int  */
         cl_index byte_size;     /*  size of byte in binary streams  */
         cl_fixnum last_op;      /*  0: unknown, 1: reading, -1: writing */
         char *buffer;           /*  buffer for FILE  */
+        unsigned char *byte_buffer; /*  buffer for encoding and decoding */
         cl_object format;       /*  external format  */
         cl_eformat_encoder encoder;
         cl_eformat_decoder decoder;
+        cl_binary_encoder byte_encoder;
+        cl_binary_decoder byte_decoder;
         cl_object format_table;
         int flags;              /*  character table, flags, etc  */
         ecl_character eof_char;
@@ -751,6 +783,8 @@ struct ecl_bytecodes {
         cl_index code_size;     /*  number of bytecodes  */
         char *code;             /*  the intermediate language  */
         cl_object data;         /*  non-inmediate constants used in the code  */
+        cl_object flex;         /*  indexes of captured objects (vector) */
+        cl_object nlcl;         /*  number of slots for local values */
         cl_object file;         /*  file where it was defined...  */
         cl_object file_position;/*  and where it was created  */
 };
@@ -758,7 +792,7 @@ struct ecl_bytecodes {
 struct ecl_bclosure {
         _ECL_HDR;
         cl_object code;
-        cl_object lex;
+        cl_object lex;          /*  captured objects (flat vector) */
         cl_objectfn entry;      /*  entry address  */
 };
 
@@ -768,7 +802,7 @@ struct ecl_cfun {               /*  compiled function header  */
         cl_object block;        /*  descriptor of C code block for GC  */
         cl_objectfn entry;      /*  entry address  */
 #ifdef ECL_C_COMPATIBLE_VARIADIC_DISPATCH
-        /* Some architectures (i.e. ARM64 on iOS) use a different
+        /* Some architectures (i.e. ARM64 on iOS/Mac OS X) use a different
          * calling convention for the fixed and variadic arguments of
          * a variadic function. The only portable way to allow for
          * function redefinitions during runtime in these
@@ -905,10 +939,10 @@ struct ecl_foreign {            /*  user defined datatype  */
 };
 
 struct ecl_stack_frame {
-        _ECL_HDR;
-        cl_object *stack;       /*  Is this relative to the lisp stack?  */
-        cl_object *base;        /*  Start of frame  */
+        _ECL_HDR1(opened);
+        cl_index base;          /*  Start of the stack frame */
         cl_index size;          /*  Number of arguments  */
+        cl_index sp;            /*  Stack pointer  */
         struct cl_env_struct *env;
 };
 
@@ -916,6 +950,7 @@ struct ecl_weak_pointer {       /*  weak pointer to value  */
         _ECL_HDR;
         cl_object value;
 };
+#define ecl_weak_pointer(o) ((o)->weak.value)
 
 /*
         dummy type
@@ -925,12 +960,42 @@ struct ecl_dummy {
 };
 
 #ifdef ECL_THREADS
+
+#ifdef ECL_WINDOWS_THREADS
+typedef HANDLE ecl_thread_t;
+typedef HANDLE ecl_mutex_t;
+typedef struct ecl_cond_var_t {
+        HANDLE broadcast_event;
+        HANDLE signal_event;
+        cl_index state;
+} ecl_cond_var_t;
+typedef SRWLOCK ecl_rwlock_t;
+#else
+typedef pthread_t ecl_thread_t;
+typedef pthread_mutex_t ecl_mutex_t;
+typedef pthread_cond_t ecl_cond_var_t;
+# ifdef HAVE_POSIX_RWLOCK
+typedef pthread_rwlock_t ecl_rwlock_t;
+# else
+typedef struct ecl_rwlock_t {
+        pthread_mutex_t mutex;
+        pthread_cond_t reader_cv;
+        pthread_cond_t writer_cv;
+        /* reader_count = 0: lock is free
+         * reader_count =-1: writer holds the lock
+         * reader_count > 0: number of readers */
+        cl_fixnum reader_count;
+} ecl_rwlock_t;
+# endif
+#endif
+
 enum {
         ECL_PROCESS_INACTIVE = 0,
         ECL_PROCESS_BOOTING,
         ECL_PROCESS_ACTIVE,
         ECL_PROCESS_EXITING
 };
+
 struct ecl_process {
         _ECL_HDR;
         cl_object name;
@@ -938,19 +1003,14 @@ struct ecl_process {
         cl_object args;
         struct cl_env_struct *env;
         cl_object interrupt;
-        cl_object initial_bindings;
+        cl_object inherit_bindings_p;
         cl_object parent;
-        cl_object exit_barrier;
         cl_object exit_values;
         cl_object woken_up;
-        cl_object queue_record;
-        cl_object start_stop_spinlock;
+        ecl_mutex_t start_stop_lock; /* phase is updated only when we hold this lock */
+        ecl_cond_var_t exit_barrier; /* process-join waits on this barrier */
         cl_index phase;
-#ifdef ECL_WINDOWS_THREADS
-        HANDLE thread;
-#else
-        pthread_t thread;
-#endif
+        ecl_thread_t thread;
         int trap_fpe_bits;
 };
 
@@ -962,33 +1022,30 @@ enum {
         ECL_WAKEUP_DELETE = 8
 };
 
-struct ecl_queue {
-        _ECL_HDR;
-        cl_object list;
-        cl_object spinlock;
-};
-
 struct ecl_semaphore {
         _ECL_HDR;
-        cl_object queue_list;
-        cl_object queue_spinlock;
         cl_object name;
         cl_fixnum counter;
+        cl_fixnum wait_count;
+        ecl_mutex_t mutex;
+        ecl_cond_var_t cv;
 };
 
+#define ECL_BARRIER_WAKEUP_NORMAL 1
+#define ECL_BARRIER_WAKEUP_KILL 2
+
 struct ecl_barrier {
-        _ECL_HDR;
-        cl_object queue_list;
-        cl_object queue_spinlock;
+        _ECL_HDR2(disabled,wakeup);
         cl_object name;
-        cl_fixnum count;
-        cl_fixnum arrivers_count;
+        cl_index count;
+        cl_index arrivers_count;
+        ecl_mutex_t mutex;
+        ecl_cond_var_t cv;
 };
 
 struct ecl_lock {
         _ECL_HDR1(recursive);
-        cl_object queue_list;
-        cl_object queue_spinlock;
+        ecl_mutex_t mutex;
         cl_object owner;       /* thread holding the lock or NIL */
         cl_object name;
         cl_fixnum counter;
@@ -998,28 +1055,23 @@ struct ecl_mailbox {
         _ECL_HDR;
         cl_object name;
         cl_object data;
-        cl_object reader_semaphore;
-        cl_object writer_semaphore;
+        ecl_mutex_t mutex;
+        ecl_cond_var_t reader_cv;
+        ecl_cond_var_t writer_cv;
+        cl_index message_count;
         cl_index read_pointer;
         cl_index write_pointer;
-        cl_index mask;
 };
 
 struct ecl_rwlock {
         _ECL_HDR;
         cl_object name;
-#ifdef ECL_RWLOCK
-        pthread_rwlock_t mutex;
-#else
-        cl_object mutex;
-#endif
+        ecl_rwlock_t mutex;
 };
 
 struct ecl_condition_variable {
         _ECL_HDR;
-        cl_object queue_list;
-        cl_object queue_spinlock;
-        cl_object lock;
+        ecl_cond_var_t cv;
 };
 #endif /* ECL_THREADS */
 
@@ -1124,7 +1176,6 @@ union cl_lispunion {
         struct ecl_instance     instance;       /*  clos instance */
 #ifdef ECL_THREADS
         struct ecl_process      process;        /*  process  */
-        struct ecl_queue        queue;          /*  lock  */
         struct ecl_lock         lock;           /*  lock  */
         struct ecl_rwlock       rwlock;         /*  read/write lock  */
         struct ecl_condition_variable condition_variable; /*  condition-variable */

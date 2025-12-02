@@ -6,12 +6,7 @@
 
 ;;;;  Copyright (c) 2008. Juan Jose Garcia-Ripol
 ;;;;
-;;;;    This program is free software; you can redistribute it and/or
-;;;;    modify it under the terms of the GNU Library General Public
-;;;;    License as published by the Free Software Foundation; either
-;;;;    version 2 of the License, or (at your option) any later version.
-;;;;
-;;;;    See file '../Copyright' for full details.
+;;;;    See file 'LICENSE' for the copyright details.
 
 (in-package "COMPILER")
 
@@ -40,6 +35,12 @@
               forms)))
     forms))
 
+(defun contains-compound-function-type (type)
+  (and (consp type)
+       (or (eq (first type) 'FUNCTION)
+           (and (member (first type) '(NOT OR AND CONS))
+                (some #'contains-compound-function-type (rest type))))))
+
 (defun expand-typep (form object type env)
   ;; This function is reponsible for expanding (TYPEP object type)
   ;; forms into a reasonable set of system calls. When it fails to
@@ -52,22 +53,40 @@
          first rest function)
     ;; Type must be constant to optimize
     (if (constantp type env)
-        (setf type (ext:constant-form-value type env))
+        (setf type (cmp-env-search-type (ext:constant-form-value type env) env))
         (return-from expand-typep form))
-    (cond ;; Variable declared with a given type
+    (cond ;; compound function type specifier: signals an error
+          ((contains-compound-function-type type)
+           (cmpwarn "~S is not a valid type specifier for TYPEP" type)
+           form)
+          ;; Variable declared with a given type
           ((and (symbolp object)
                 (setf aux (cmp-env-search-var object env))
-                (subtypep (var-type aux) type))
+                (subtypep (var-type aux) type *cmp-env*))
            t)
           ;; Simple ones
-          ((subtypep 'T type) T)
+          ((subtypep 'T type *cmp-env*) T)
           ((eq type 'NIL) NIL)
           ;;
           ;; Detect inconsistencies in the provided type. If we run at low
           ;; safety, we will simply assume the user knows what she's doing.
-          ((subtypep type NIL)
+          ((subtypep type NIL *cmp-env*)
            (cmpwarn "TYPEP form contains an empty type ~S and cannot be optimized" type)
            form)
+          ;;
+          ;; Derived types defined with DEFTYPE. These are expanded
+          ;; first so that we can sort out compound function types
+          ;; which are equal under si::type= to the atomic function
+          ;; type but not allowed in TYPEP.
+          ((setq function (si:get-sysprop (if (atom type)
+                                              type
+                                              (first type))
+                                          'SI::DEFTYPE-DEFINITION))
+           (expand-typep form object `(quote ,(funcall function (if (atom type)
+                                                                    (list type)
+                                                                    type)
+                                                       env))
+                         env))
           ;;
           ;; There exists a function which checks for this type?
           ((setf function (si:get-sysprop type 'si::type-predicate))
@@ -76,13 +95,8 @@
           ;; Similar as before, but we assume the user did not give us
           ;; the right name, or gave us an equivalent type.
           ((loop for (a-type . function-name) in si::+known-typep-predicates+
-              when (si::type= type a-type)
+              when (si::type= type a-type *cmp-env*)
               do (return `(,function-name ,object))))
-          ;;
-          ;; Derived types defined with DEFTYPE.
-          ((and (atom type)
-                (setq function (si:get-sysprop type 'SI::DEFTYPE-DEFINITION)))
-           (expand-typep form object `',(funcall function nil) env))
           ;;
           ;; No optimizations that take up too much space unless requested.
           ((not (policy-inline-type-checks))
@@ -130,7 +144,7 @@
              ;; Small optimization: it is easier to check for fixnum
              ;; than for integer. Use it when possible.
              (when (and (eq first 'integer)
-                        (subtypep type 'fixnum))
+                        (subtypep type 'fixnum *cmp-env*))
                (setf first 'fixnum))
              `(LET ((,var1 ,object)
                     (,var2 ,(coerce 0 first)))
@@ -138,13 +152,14 @@
                          (type ,first ,var2))
                 (AND (TYPEP ,var1 ',first)
                      (locally (declare (optimize (speed 3) (safety 0) (space 0)))
-                       (setf ,var2 (truly-the ,first ,var1))
+                       (setf ,var2 (ext:truly-the ,first ,var1))
                        (AND ,@(expand-in-interval-p var2 rest)))))))
           ;;
           ;; Compound COMPLEX types.
           ((and (eq first 'COMPLEX)
                 (= (list-length type) 2))
-           `(and (typep (realpart ,object) ',(second type))
+           `(and (complexp ,object)
+                 (typep (realpart ,object) ',(second type))
                  (typep (imagpart ,object) ',(second type))))
           ;;
           ;; (SATISFIES predicate)
@@ -152,14 +167,11 @@
                 (= (list-length type) 2)
                 (symbolp (setf function (second type))))
            `(,function ,object))
-          ;;
-          ;; Derived compound types.
-          ((setf function (si:get-sysprop first 'SI::DEFTYPE-DEFINITION))
-           (expand-typep form object `',(funcall function rest) env))
           (t
            form))))
 
 (define-compiler-macro typep (&whole form object type &optional e &environment env)
+  (declare (ignore e))
   (expand-typep form object type env))
 
 ;;;
@@ -187,7 +199,7 @@
            (list-var (gensym))
            (typed-var (if (policy-assume-no-errors env)
                           list-var
-                          `(truly-the cons ,list-var))))
+                          `(ext:truly-the cons ,list-var))))
       `(block nil
          (let* ((,list-var ,expression))
            (si::while ,list-var
@@ -249,14 +261,14 @@
          first rest)
     ;; Type must be constant to optimize
     (if (constantp type env)
-        (setf type (ext:constant-form-value type env))
+        (setf type (cmp-env-search-type (ext:constant-form-value type env) env))
         (return-from expand-coerce form))
     (cond ;; Trivial case
-          ((subtypep 't type)
+          ((subtypep 't type *cmp-env*)
            value)
           ;;
           ;; Detect inconsistencies in the type form.
-          ((subtypep type 'nil)
+          ((subtypep type 'nil *cmp-env*)
            (cmperror "Cannot COERCE an expression to an empty type."))
           ;;
           ;; No optimizations that take up too much space unless requested.
@@ -271,7 +283,7 @@
           ;; Derived types defined with DEFTYPE.
           ((and (atom type)
                 (setq first (si:get-sysprop type 'SI::DEFTYPE-DEFINITION)))
-           (expand-coerce form value `',(funcall first nil) env))
+           (expand-coerce form value `',(funcall first (list type) env) env))
           ;;
           ;; CONS types are not coercible.
           ((and (consp type)
@@ -281,18 +293,18 @@
           ;; Search for a simple template above, but now assuming the user
           ;; provided a more complex form of the same value.
           ((loop for (a-type . template) in +coercion-table+
-              when (si::type= type a-type)
+              when (si::type= type a-type *cmp-env*)
               do (return (subst value 'x template))))
           ;;
           ;; SEQUENCE types
-          ((subtypep type 'sequence)
+          ((subtypep type 'sequence *cmp-env*)
            (multiple-value-bind (elt-type length)
                (si::closest-sequence-type type)
              (if (or (eq length '*) (policy-assume-right-type))
                  (if (eq elt-type 'list)
                      `(si::coerce-to-list ,value)
                      `(si::coerce-to-vector ,value ',elt-type ',length
-                                            ,(and (subtypep type 'simple-array) t)))
+                                            ,(and (subtypep type 'simple-array *cmp-env*) t)))
                  form)))
           ;;
           ;; There are no other atomic types to optimize
@@ -338,26 +350,14 @@
 (define-compiler-macro coerce (&whole form value type &environment env)
   (expand-coerce form value type env))
 
-(define-compiler-macro float (&whole form value &optional float &environment env)
-  (or 
-   (and
-    float
-    (policy-inline-type-checks env)
-    (multiple-value-bind (constant-p float)
-        (constant-value-p float env)
-      (when (and constant-p (floatp float))
-        (let* ((aux (gentemp))
-               (float (type-of float))
-               (c-type (lisp-type->rep-type float)))
-          `(let ((value ,value))
-             (declare (:read-only value))
-             (compiler-typecase value
-               (,float value)
-               (t
-                (ffi:c-inline (value) (:object) ,c-type
-                              ,(ecase c-type
-                                      (:double "ecl_to_double(#0)")
-                                      (:float "ecl_to_float(#0)")
-                                      (:long-double "ecl_to_long_double(#0)"))
-                              :one-liner t :side-effects nil))))))))
-   form))
+(define-compiler-macro princ (&whole whole expression &optional stream &environment env)
+  (if (constantp expression env)
+      (let ((value (ext:constant-form-value expression env)))
+        (typecase value
+          ((eql #\newline)
+           `(terpri ,stream))
+          ((string 1)
+           `(princ ,(aref value 0) ,stream))
+          (otherwise
+           whole)))
+      whole))

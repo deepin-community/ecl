@@ -6,17 +6,9 @@
 
 ;;;;  Copyright (c) 2008. Juan Jose Garcia-Ripol
 ;;;;
-;;;;    This program is free software; you can redistribute it and/or
-;;;;    modify it under the terms of the GNU Library General Public
-;;;;    License as published by the Free Software Foundation; either
-;;;;    version 2 of the License, or (at your option) any later version.
-;;;;
-;;;;    See file '../Copyright' for full details.
+;;;;    See file 'LICENSE' for the copyright details.
 
 (in-package "COMPILER")
-
-(defun valid-array-index-p (x)
-  (typep x 'ext:array-index))
 
 ;;;
 ;;; MAKE-ARRAY
@@ -25,7 +17,7 @@
 (defun guess-array-element-type (element-type)
   (if (and (setf element-type (extract-constant-value element-type))
            (known-type-p element-type))
-      (upgraded-array-element-type element-type)
+      (upgraded-array-element-type element-type *cmp-env*)
       '*))
 
 (defun guess-array-dimensions-type (orig-dimensions &aux dimensions)
@@ -38,25 +30,24 @@
   (let ((dimensions (extract-constant-value orig-dimensions :failed)))
     (cond ((eq dimensions ':failed)
            '*)
-          ((valid-array-index-p dimensions)
+          ((typep dimensions 'ext:array-index *cmp-env*)
            (list dimensions))
           ((and (listp dimensions)
                 (let ((rank (list-length dimensions)))
-                  (or (numberp rank)
-                      (< -1 rank array-rank-limit)
-                      (every #'valid-array-index dimensions))))
+                  (and (numberp rank)
+                       (< -1 rank array-rank-limit)
+                       (every #'(lambda (x) (typep x 'ext:array-index *cmp-env*)) dimensions)
+                       (< (apply '* dimensions) array-total-size-limit))))
            dimensions)
           (t
            (cmpwarn "The first argument to MAKE-ARRAY~%~A~%is not a valid set of dimensions" orig-dimensions)
            '*))))
 
-(define-compiler-macro make-array (&whole form dimensions &key (element-type t)
-                                          (initial-element nil initial-element-supplied-p)
-                                          (initial-contents nil initial-contents-supplied-p)
-                                          adjustable fill-pointer
-                                          displaced-to (displaced-index-offset 0)
-                                          &environment env)
-  (declare (ignore env))
+(define-compiler-macro* make-array (&whole form dimensions &key (element-type t)
+                                           (initial-element nil initial-element-supplied-p)
+                                           (initial-contents nil initial-contents-supplied-p)
+                                           adjustable fill-pointer
+                                           displaced-to (displaced-index-offset 0))
   ;; This optimization is always done unless we provide content. There
   ;; is no speed, debug or space reason not to do it, unless the user
   ;; specifies not to inline MAKE-ARRAY, but in that case the compiler
@@ -71,20 +62,20 @@
       ;; Now we choose between making a vector or making a general array.
       ;; It only saves some time, since MAKE-PURE-ARRAY will call MAKE-VECTOR
       ;; if a one-dimensional array is to be created.
-      (let ((function 'si::make-pure-array))
+      (let ((function 'si:make-pure-array))
         (when (and (listp dimensions-type)
                    (null (rest dimensions-type))
                    (integerp (first dimensions-type)))
-          (setf function 'si::make-vector
+          (setf function 'si:make-vector
                 dimensions (first dimensions-type)))
         (setf form
-              `(,function ,element-type ,dimensions ,adjustable ,fill-pointer
-                          ,displaced-to ,displaced-index-offset)))
+              `(,function ,%element-type ,%dimensions ,%adjustable ,%fill-pointer
+                          ,%displaced-to ,%displaced-index-offset)))
       ;; Then we may fill the array with a given value
       (when initial-element-supplied-p
-        (setf form `(si::fill-array-with-elt ,form ,initial-element 0 nil)))
-      (setf form `(truly-the (array ,guessed-element-type ,dimensions-type)
-                    ,form))))
+        (setf form `(si:fill-array-with-elt ,form ,%initial-element 0 nil)))
+      (setf form `(ext:truly-the (array ,guessed-element-type ,dimensions-type)
+                                 ,form))))
   form)
 
 ;;;
@@ -94,7 +85,7 @@
 (defun expand-vector-push (whole env extend &aux (args (rest whole)))
   (declare (si::c-local)
            (ignore env))
-  (with-clean-symbols (value vector index dimension)
+  (ext:with-clean-symbols (value vector index dimension)
     (when (or (eq (first args) 'value) ; No infinite recursion
               (not (policy-open-code-aref/aset)))
       (return-from expand-vector-push
@@ -104,7 +95,7 @@
                 (if extend 3 2))
       (cmpwarn "Wrong number of arguments passed to function ~A in form: ~A" (first whole) whole)
       (return-from expand-vector-push
-        `(si::simple-program-error
+        `(si:simple-program-error
           "Wrong number of arguments passed to function ~A in form: ~A" ',(first whole) ',whole)))
     `(let* ((value ,(car args))
             (vector ,(second args)))
@@ -116,8 +107,8 @@
          (declare (fixnum index dimension)
                   (:read-only index dimension))
          (cond ((< index dimension)
-                (sys::fill-pointer-set vector (truly-the fixnum (+ 1 index)))
-                (sys::aset vector index value)
+                (si:fill-pointer-set vector (ext:truly-the fixnum (+ 1 index)))
+                (si:aset vector index value)
                 index)
                (t ,(if extend
                        `(vector-push-extend value vector ,@(cddr args))
@@ -139,18 +130,17 @@
       form))
 
 (defun expand-aref (array indices env)
-  (with-clean-symbols (%array)
+  (ext:with-clean-symbols (%array)
     `(let ((%array ,array))
        (declare (:read-only %array)
                 (optimize (safety 0)))
        (row-major-aref %array
                        ,(expand-row-major-index '%array indices env)))))
 
-(define-compiler-macro si::aset (&whole form array &rest indices-and-value
-                                        &environment env)
+(define-compiler-macro si:aset (&whole form array &rest indices-and-value
+                                &environment env)
   (cond ((null indices-and-value)
-         (cmpwarn "Too few arguments to SI::ASET form~%~4I~A"
-                  form)
+         (cmpwarn "Too few arguments to SI:ASET form~%~4I~A" form)
          form)
         ((policy-open-code-aref/aset env)
          (let* ((indices (butlast indices-and-value))
@@ -164,11 +154,11 @@
     `(let* ((,%array ,array))
        (declare (:read-only ,%array)
                 (optimize (safety 0)))
-       (si::row-major-aset ,%array ,(expand-row-major-index %array indices env) ,value))))
+       (si:row-major-aset ,%array ,(expand-row-major-index %array indices env) ,value))))
 
 (define-compiler-macro array-row-major-index (&whole form array &rest indices &environment env)
   (if (policy-open-code-aref/aset env)
-      (with-clean-symbols (%array)
+      (ext:with-clean-symbols (%array)
         `(let ((%array ,array))
            (declare (:read-only %array)
                     (optimize (safety 0)))
@@ -190,7 +180,7 @@
               (check-vector-in-bounds ,a ,index)
               ,index)))
     (if (policy-type-assertions env)
-        (with-clean-symbols (%array-index)
+        (ext:with-clean-symbols (%array-index)
           `(let ((%array-index ,index))
              (declare (:read-only %array-index))
              ,(expansion a '%array-index)))
@@ -209,7 +199,7 @@
                   for index in indices
                   collect `(,(gentemp "DIM") (array-dimension-fast ,a ,i))))
          (dim-names (mapcar #'first dims)))
-    (with-clean-symbols (%ndx-var %output-var %dim-var)
+    (ext:with-clean-symbols (%ndx-var %output-var %dim-var)
       `(let* (,@dims
               (%output-var 0))
          (declare (type ext:array-index %output-var ,@dim-names)
@@ -223,32 +213,30 @@
               for dim-var in dim-names
               when (plusp i)
               collect `(setf %output-var
-                             (truly-the ext:array-index (* %output-var ,dim-var)))
+                             (ext:truly-the ext:array-index (* %output-var ,dim-var)))
               collect `(let ((%ndx-var ,index))
                          (declare (ext:array-index %ndx-var))
                          ,(and check `(check-index-in-bounds ,a %ndx-var ,dim-var))
                          (setf %output-var
-                               (truly-the ext:array-index (+ %output-var %ndx-var)))))
+                               (ext:truly-the ext:array-index (+ %output-var %ndx-var)))))
          %output-var))))
 
-;(trace c::expand-row-major-index c::expand-aset c::expand-aref)
-
 (defmacro check-expected-rank (a expected-rank)
-  `(c-inline
+  `(ffi:c-inline
     (,a ,expected-rank) (:object :fixnum) :void
     "if (ecl_unlikely((#0)->array.rank != (#1)))
             FEwrong_dimensions(#0,#1);"
     :one-liner nil))
 
 (defmacro check-index-in-bounds (array index limit)
-  `(c-inline
+  `(ffi:c-inline
     (,array ,index ,limit) (:object :fixnum :fixnum) :void
     "if (ecl_unlikely((#1)>=(#2)))
            FEwrong_index(ECL_NIL,#0,-1,ecl_make_fixnum(#1),#2);"
     :one-liner nil))
 
 (defmacro check-vector-in-bounds (vector index)
-  `(c-inline
+  `(ffi:c-inline
     (,vector ,index) (:object :fixnum) :void
     "if (ecl_unlikely((#1)>=(#0)->vector.dim))
            FEwrong_index(ECL_NIL,#0,-1,ecl_make_fixnum(#1),(#0)->vector.dim);"
@@ -264,10 +252,10 @@
                       for c-code = (format nil "(#0)->array.dims[~D]" i)
                       collect `((:object) :fixnum ,c-code :one-liner t
                                 :side-effects nil)))))
-    `(c-inline (,array) ,@(aref tails n))))
+    `(ffi:c-inline (,array) ,@(aref tails n))))
 
 (defmacro array-dimension-fast (array n)
-  (if (typep n '(integer 0 #.(1- array-rank-limit)))
+  (if (typep n '(integer 0 #.(1- array-rank-limit)) *cmp-env*)
       (array-dimension-accessor array n)
       (error "In macro ARRAY-DIMENSION-FAST, the index is not a constant integer: ~A"
              n)))

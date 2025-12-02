@@ -4,13 +4,7 @@
 ;;;;
 ;;;;  Copyright (c) 2004, Juan Jose Garcia-Ripoll
 ;;;;
-;;;;    This program is free software; you can redistribute it and/or
-;;;;    modify it under the terms of the GNU Library General Public
-;;;;    License as published by the Free Software Foundation; either
-;;;;    version 2 of the License, or (at your option) any later version.
-;;;;
-;;;;    See file '../Copyright' for full details.
-;;;;        The CLOS IO library.
+;;;;    See file 'LICENSE' for the copyright details.
 
 (in-package "GRAY")
 
@@ -95,8 +89,12 @@
   stream class that is defined, a method must be defined for this
   function, although it is permissible for it to always return NIL."))
 
+;; Extension from CLASP, CMUCL, SBCL, Mezzano and SICL
+
+(defgeneric stream-line-length (stream)
+  (:documentation "Return the stream line length or NIL."))
+
 (defgeneric stream-listen (stream)
-  #+sb-doc
   (:documentation
    "This is used by LISTEN. It returns true or false. The default method uses
   STREAM-READ-CHAR-NO-HANG and STREAM-UNREAD-CHAR. Most streams should
@@ -111,6 +109,13 @@
 
 (defgeneric output-stream-p (stream)
   (:documentation "Can STREAM perform output operations?"))
+
+;;; Extension
+(defgeneric stream-peek-byte (stream)
+  (:documentation
+   "This is used to implement EXT:PEEK-BYTE.
+  It returns either a byte or :EOF. The default method calls STREAM-READ-BYTE
+  and STREAM-UNREAD-BYTE."))
 
 (defgeneric stream-peek-char (stream)
   (:documentation
@@ -170,6 +175,13 @@
    "Writes an end of line, as for TERPRI. Returns NIL. The default
   method does (STREAM-WRITE-CHAR stream #\NEWLINE)."))
 
+;;; Extension
+(defgeneric stream-unread-byte (stream byte)
+  (:documentation
+   "Un-do the last call to STREAM-READ-BYTE, as in EXT:UNREAD-BYTE.
+  Return NIL. Every subclass of FUNDAMENTAL-BINARY-INPUT-STREAM
+  must define a method for this function."))
+
 (defgeneric stream-unread-char (stream character)
   (:documentation
    "Un-do the last call to STREAM-READ-CHAR, as in UNREAD-CHAR.
@@ -203,6 +215,14 @@
   (:documentation
    "This is like CL:FILE-POSITION, but for Gray streams."))
 
+(defgeneric stream-file-length (stream)
+  (:documentation
+   "This is like CL:FILE-LENGTH, but for Gray streams."))
+
+(defgeneric stream-file-string-length (stream string)
+  (:documentation
+   "This is like CL:FILE-STRING-LENGTH, but for Gray streams."))
+
 (defgeneric stream-file-descriptor (stream &optional direction)
   (:documentation
    "Return the file-descriptor underlaying STREAM, or NIL if not
@@ -217,6 +237,14 @@
    In case STREAM-FILE-DESCRIPTOR is not implemented for STREAM, an
    error is signaled. That is, users must add methods to explicitly
    decline by returning NIL."))
+
+(defgeneric pathname (pathspec)
+  (:documentation
+   "Returns the pathname denoted by pathspec."))
+
+(defgeneric truename (pathspec)
+  (:documentation
+   "truename tries to find the file indicated by filespec and returns its truename."))
 
 
 ;;;
@@ -279,7 +307,7 @@
                                      column)
   (let ((current-column (stream-line-column stream)))
     (when current-column
-      (let ((fill (- column current-column)))
+      (let ((fill (floor (- column current-column))))
         (dotimes (i fill)
           (stream-write-char stream #\Space)))
       T)))
@@ -394,6 +422,10 @@
 
 ;; INTERACTIVE-STREAM-P
 
+(defmethod stream-interactive-p ((stream fundamental-stream))
+  (declare (ignore stream))
+  nil)
+
 (defmethod stream-interactive-p ((stream ansi-stream))
   (cl:interactive-stream-p stream))
 
@@ -407,6 +439,16 @@
   (declare (ignore stream))
   nil)
 
+;; LINE-LENGTH
+
+(defmethod stream-line-length ((stream fundamental-character-output-stream))
+  nil)
+
+(defmethod stream-line-length ((stream ansi-stream))
+  nil)
+
+(defmethod stream-line-length ((stream t))
+  (bug-or-error stream 'stream-line-length))
 
 ;; LISTEN
 
@@ -448,6 +490,19 @@
 (defmethod output-stream-p ((stream t))
   (bug-or-error stream 'output-stream-p))
 
+;; PEEK-BYTE
+
+(defmethod stream-peek-byte ((stream fundamental-binary-input-stream))
+  (let ((byte (stream-read-byte stream)))
+    (unless (eq byte :eof)
+      (stream-unread-byte stream byte))
+    byte))
+
+(defmethod stream-peek-byte ((stream ansi-stream))
+  (ext:peek-byte stream :eof))
+
+(defmethod stream-peek-byte ((stream t))
+  (bug-or-error stream 'stream-peek-byte))
 
 ;; PEEK-CHAR
 
@@ -481,13 +536,21 @@
 (defmethod stream-read-char ((stream t))
   (bug-or-error stream 'stream-read-char))
 
+;; UNREAD-BYTE
+
+(defmethod stream-unread-byte ((stream ansi-stream) byte)
+  (ext:unread-byte stream byte))
+
+(defmethod stream-unread-byte ((stream t) byte)
+  (declare (ignore byte))
+  (bug-or-error stream 'stream-unread-byte))
 
 ;; UNREAD-CHAR
 
 (defmethod stream-unread-char ((stream ansi-stream) character)
   (cl:unread-char character stream))
 
-(defmethod stream-unread-char ((stream ansi-stream) character)
+(defmethod stream-unread-char ((stream t) character)
   (declare (ignore character))
   (bug-or-error stream 'stream-unread-char))
 
@@ -513,9 +576,7 @@
     (loop
      (let ((ch (stream-read-char stream)))
        (cond ((eq ch :eof)
-              (return (values (if (zerop index)
-                                  nil
-                                  (si::shrink-vector res index))
+              (return (values (si::shrink-vector res index)
                               t)))
              (t
               (when (char= ch #\newline)
@@ -572,7 +633,7 @@
 
 (defmethod stream-read-sequence ((stream ansi-stream) sequence
                                  &optional (start 0) (end nil))
-  (si:do-read-sequence stream sequence start end))
+  (si:do-read-sequence sequence stream start end))
 
 (defmethod stream-read-sequence ((stream t) sequence &optional start end)
   (declare (ignore sequence start end))
@@ -591,6 +652,22 @@
 
 (defmethod stream-file-position ((stream t) &optional position)
   (declare (ignore stream position))
+  nil)
+
+;; FILE-LENGTH
+
+(defmethod stream-file-length ((stream ansi-stream))
+  (file-length stream))
+
+(defmethod stream-file-length ((stream t))
+  (error 'type-error :datum stream :expected-type 'file-stream))
+
+;; FILE-STRING-LENGTH
+
+(defmethod stream-file-string-length ((stream ansi-stream) string)
+  (file-string-length stream string))
+
+(defmethod stream-file-string-length ((stream fundamental-character-output-stream) string)
   nil)
 
 ;; STREAM-P
@@ -691,7 +768,8 @@
 ;; TERPRI
 
 (defmethod stream-terpri ((stream fundamental-character-output-stream))
-  (stream-write-char stream #\Newline))
+  (stream-write-char stream #\Newline)
+  nil)
 
 (defmethod stream-terpri ((stream ansi-stream))
   (cl:terpri stream))
@@ -741,12 +819,45 @@
   (si:file-stream-fd stream))
 
 
+;;; PATHNAME
+
+(defmethod pathname ((pathspec string))
+  (cl:pathname pathspec))
+
+(defmethod pathname ((pathspec cl:pathname))
+  pathspec)
+
+(defmethod pathname ((pathspec ansi-stream))
+  (cl:pathname pathspec))
+
+(defmethod pathname (pathspec)
+  (error 'type-error :datum pathspec
+                     :expected-type '(or string cl:pathname file-stream)))
+
+
+;;; TRUENAME
+
+(defmethod truename ((filespec string))
+  (cl:truename filespec))
+
+(defmethod truename ((filespec cl:pathname))
+  (cl:truename filespec))
+
+(defmethod truename ((filespec ansi-stream))
+  (cl:truename filespec))
+
+(defmethod truename (filespec)
+  (error 'type-error :datum filespec
+                     :expected-type '(or string cl:pathname file-stream)))
+
+
 ;;; Setup
 
 (eval-when (:compile-toplevel :execute)
   (defconstant +conflicting-symbols+
     '(cl:close cl:stream-element-type cl:input-stream-p
-      cl:open-stream-p cl:output-stream-p cl:streamp)))
+      cl:open-stream-p cl:output-stream-p cl:streamp
+      cl:pathname cl:truename)))
 
 (let ((p (find-package "GRAY")))
   (export '(nil) p)
@@ -821,7 +932,19 @@ them so."
     (%redefine-cl-functions 'cl:file-position
                             'gray:stream-file-position
                             gray-package)
+    (%redefine-cl-functions 'cl:file-length
+                            'gray:stream-file-length
+                            gray-package)
     (si::package-lock "COMMON-LISP" x)
+    (provide '#:gray-streams)
     nil))
+
+(pushnew :gray-streams-module *features*)
+
+(pushnew #'(lambda (module)
+             (when (string-equal module '#:gray-streams)
+               (redefine-cl-functions)
+               t))
+         sys:*module-provider-functions*)
 
 (setf clos::*clos-booted* t)

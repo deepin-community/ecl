@@ -4,6 +4,7 @@
 \#*
 
 /build
+/local
 cov-int
 
 *.data
@@ -21,6 +22,8 @@ cov-int
 
 
 msvc/help.doc
+msvc/*.c
+msvc/*.tmp
 msvc/*.bat
 msvc/*.lsp
 msvc/c/*.[ch]

@@ -5,12 +5,7 @@
 ;;;;  Copyright (c) 1992, Giuseppe Attardi.o
 ;;;;  Copyright (c) 2001, Juan Jose Garcia Ripoll.
 ;;;;
-;;;;    This program is free software; you can redistribute it and/or
-;;;;    modify it under the terms of the GNU Library General Public
-;;;;    License as published by the Free Software Foundation; either
-;;;;    version 2 of the License, or (at your option) any later version.
-;;;;
-;;;;    See file '../Copyright' for full details.
+;;;;    See file 'LICENSE' for the copyright details.
 
 ;;;
 ;;; COMMON LISP CLASSES HIERARCHY
@@ -59,7 +54,7 @@
   (defparameter +class-slots+
     `(,@+specializer-slots+
       (name :initarg :name :initform nil :accessor class-id)
-      (direct-superclasses :initarg :direct-superclasses
+      (direct-superclasses :initarg :direct-superclasses :initform nil
        :accessor class-direct-superclasses)
       (direct-subclasses :initform nil :accessor class-direct-subclasses)
       (slots :accessor class-slots)
@@ -76,13 +71,12 @@
       (dependents :initform nil :accessor class-dependents)
       (valid-initargs :accessor class-valid-initargs)
       (slot-table :accessor slot-table)
-      (location-table :initform nil :accessor class-location-table)
-      ))
-
-  (defconstant +class-name-ndx+
-    (position 'name +class-slots+ :key #'first))
-  (defconstant +class-precedence-list-ndx+
-    (position 'precedence-list +class-slots+ :key #'first)))
+      (location-table :initform nil :accessor class-location-table)))
+  ;; INV these assertions validate constants hardcoded in symbols_list.h.
+  (assert (= +class-name-ndx+
+             (position 'name +class-slots+ :key #'first)))
+  (assert (= +class-precedence-list-ndx+
+             (position 'precedence-list +class-slots+ :key #'first))))
 
 ;;; ----------------------------------------------------------------------
 ;;; STANDARD-CLASS
@@ -113,14 +107,14 @@
 
 (eval-when (:compile-toplevel :execute)
   (defparameter +standard-generic-function-slots+
-    '((name :initarg :name :initform nil
-       :reader generic-function-name)
+    ;; INV: some of these slots are expected to have fixed positions. See
+    ;; src/h/internal.h:GFUN_NAME etc.
+    '((name :initarg :name :initform nil :reader generic-function-name)
       (spec-list :initform nil :accessor generic-function-spec-list)
       (method-combination 
        :initarg :method-combination :initform (find-method-combination (class-prototype (find-class 'standard-generic-function)) 'standard nil)
        :accessor generic-function-method-combination)
-      (lambda-list :initarg :lambda-list
-       :accessor generic-function-lambda-list)
+      (lambda-list :initarg :lambda-list :accessor generic-function-lambda-list)
       (argument-precedence-order 
        :initarg :argument-precedence-order
        :initform nil
@@ -192,8 +186,7 @@
             (array)
               (vector array sequence)
                 (string vector)
-                #+unicode
-                (base-string string vector)
+                (:unicode base-string string vector)
                 (bit-vector vector)
             (stream)
               (ext:ansi-stream stream)
@@ -218,10 +211,10 @@
                   (double-float float)
                   (long-float float)
             (complex number)
-              #+complex-float (si:complex-float complex)
-              #+complex-float (si:complex-single-float si:complex-float)
-              #+complex-float (si:complex-double-float si:complex-float)
-              #+complex-float (si:complex-long-float   si:complex-float)
+              (:complex-float si:complex-float complex)
+              (:complex-float si:complex-single-float si:complex-float)
+              (:complex-float si:complex-double-float si:complex-float)
+              (:complex-float si:complex-long-float   si:complex-float)
            (symbol)
               (null symbol list)
               (keyword symbol)
@@ -236,16 +229,18 @@
             (si::foreign-data)
             (si::frame)
             (si::weak-pointer)
-            #+threads (mp::process)
-            #+threads (mp::lock)
-            #+threads (mp::rwlock)
-            #+threads (mp::condition-variable)
-            #+threads (mp::semaphore)
-            #+threads (mp::barrier)
-            #+threads (mp::mailbox)
-            #+sse2 (ext::sse-pack))))
+            (:threads mp::process)
+            (:threads mp::lock)
+            (:threads mp::rwlock)
+            (:threads mp::condition-variable)
+            (:threads mp::semaphore)
+            (:threads mp::barrier)
+            (:threads mp::mailbox)
+            (:sse2 ext::sse-pack))))
 
 ;;; FROM AMOP:
+;;;
+;;; Class hierachy: (entries marked with `*` are abstract base classes)
 ;;;
 ;;;     Metaobject Class                Direct Superclasses
 ;;;     standard-object                 (t)
@@ -339,10 +334,16 @@
        :direct-slots #1#)
       ,@(loop for (name . rest) in +builtin-classes-list+
            for index from 1
-           collect (list name :metaclass 'built-in-class
-                         :index index
-                         :direct-superclasses (or rest '(t))))
+           for feature-flag = (if (keywordp name)
+                                  (prog1 name
+                                    (setf name (first rest) rest (rest rest)))
+                                  nil)
+           when (or (not feature-flag) (member feature-flag *features*))
+              collect (list name :metaclass 'built-in-class
+                            :index index
+                            :direct-superclasses (or rest '(t))))
       (funcallable-standard-object
+       :metaclass funcallable-standard-class
        :direct-superclasses (standard-object function))
       (generic-function
        :metaclass funcallable-standard-class

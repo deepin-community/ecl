@@ -5,12 +5,8 @@
 ;;;;  Copyright (c) 1990, Giuseppe Attardi.
 ;;;;  Copyright (c) 2001, Juan Jose Garcia Ripoll.
 ;;;;
-;;;;    This program is free software; you can redistribute it and/or
-;;;;    modify it under the terms of the GNU Library General Public
-;;;;    License as published by the Free Software Foundation; either
-;;;;    version 2 of the License, or (at your option) any later version.
-;;;;
-;;;;    See file '../Copyright' for full details.
+;;;;    See file 'LICENSE' for the copyright details.
+
 ;;;;        Tracer package for Common Lisp
 
 (in-package "SYSTEM")
@@ -272,6 +268,37 @@ all functions."
        ~@
        Finish evaluation without stepping.~%")
      ))
+
+(defun stepper-enter (form)
+  (etypecase *step-action*
+    ((eql t)
+     (incf *step-level*)
+     (stepper form))
+    ((integer 0)
+     (incf *step-action*))))
+
+(defun stepper-leave (form)
+  (declare (ignore form))
+  (typecase *step-action*
+    ((eql t)
+     (decf *step-level*))
+    ((integer 1)
+     (decf *step-action*))
+    ((integer 0 0)
+     (setf *step-action* t))))
+
+(defun stepper-call (form)
+  (if (eq *step-action* t)
+      (stepper form)
+      form))
+
+(defun stepper-hook (form delta)
+  (cond
+    ((= delta +1)
+     (stepper-enter form))
+    ((= delta -1)
+     (stepper-leave form))
+    ((stepper-call form))))
 
 (defmacro step (form)
 "Syntax: (step form)

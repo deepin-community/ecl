@@ -4,12 +4,7 @@
 ;;;;
 ;;;;  Copyright (c) 2010, Juan Jose Garcia Ripoll
 ;;;;
-;;;;    This program is free software; you can redistribute it and/or
-;;;;    modify it under the terms of the GNU Library General Public
-;;;;    License as published by the Free Software Foundation; either
-;;;;    version 2 of the License, or (at your option) any later version.
-;;;;
-;;;;    See file '../Copyright' for full details.
+;;;;    See file 'LICENSE' for the copyright details.
 
 ;;;; CMPOS-RUN  Executing auxiliary programs
 
@@ -51,18 +46,30 @@
          (program (car program)))
     (with-current-directory
      ;; when compiling ECL itself, we only have low-level functions
-     ;; available, otherwise we can use run-program and get proper
-     ;; quoting of arguments
-     #+ecl-min (multiple-value-bind (output-stream return-status pid)
-                   (si:run-program-inner program args :default nil)
-                 (setf output (collect-lines output-stream))
-                 (multiple-value-setq (return-status result)
-                   (si:waitpid pid t)))
-     #-ecl-min (multiple-value-bind (output-stream return-status process-obj)
-                   (ext:run-program program args :wait nil)
-                 (setf output (collect-lines output-stream))
-                 (multiple-value-setq (return-status result)
-                   (ext:external-process-wait process-obj t)))))
+     ;; available ...
+     #+(and ecl-min (not cygwin))
+     (multiple-value-bind (output-stream return-status pid)
+         (si:run-program-inner program args :default nil)
+       #+msvc
+       (si::stream-external-format-set output-stream
+                                       (list (si::windows-codepage-encoding) :crlf))
+       (setf output (collect-lines output-stream))
+       (multiple-value-setq (return-status result)
+         (si:waitpid pid t)))
+     ;; ... otherwise we can use run-program and get proper
+     ;; quoting of arguments ...
+     #+(and (not ecl-min) (not cygwin))
+     (multiple-value-bind (output-stream return-status process-obj)
+         (ext:run-program program args :wait nil
+                          #+msvc :external-format
+                          #+msvc (list (si::windows-codepage-encoding) :crlf))
+       (setf output (collect-lines output-stream))
+       (multiple-value-setq (return-status result)
+         (ext:external-process-wait process-obj t)))
+     ;; ... unless we're running on cygwin which has problems with
+     ;; forking so we have to use si:system
+     #+cygwin
+     (setf result (si:system (format nil "~A~{ ~A~}" program args)))))
   (cond ((null result)
          (cerror "Continues anyway."
                  "Unable to execute:~%(EXT:RUN-PROGRAM ~S ~S)"

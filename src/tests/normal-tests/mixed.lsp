@@ -164,14 +164,8 @@
 ;;; Bug: https://gitlab.com/embeddable-common-lisp/ecl/issues/271
 ;;;
 (test mix.0010.file-stream-fd
-  ;; We check the second one only if first test passes. Second test
-  ;; caused internal error of ECL and crashed the process preventing
-  ;; further tests, so we perform it only on versions after the fix.
-  (if (signals simple-type-error (ext:file-stream-fd ""))
-      (signals simple-type-error (ext:file-stream-fd
-                                  (make-string-output-stream)))
-      (fail (ext:file-stream-fd (make-string-output-stream))
-            "Not-file stream would cause internal error on this ECL (skipped)")))
+  (signals type-error (ext:file-stream-fd ""))
+  (signals type-error (ext:file-stream-fd (make-string-output-stream))))
 
 
 ;;; Date: 2016-12-20
@@ -256,42 +250,29 @@
 ;;; Date: 2018-05-08
 ;;; Description:
 ;;;
-;;;   Better handling of fifos. This test will most likely fail on Windows (this
-;;;   is not confirmed yet) because it does not support non-blocking
-;;;   operations.
-;;;
-;;;   When we figure out what would be correct semantics for Windows this test
-;;;   should be disabled for that platform and a separate test case ought to be
-;;;   created. It is possible that it won't fail (because cygwin will handle it
-;;;   gracefully and/or WinAPI does not support file-pipes).
+;;;   Better handling of fifos.
 ;;;
 ;;; Bug: https://gitlab.com/embeddable-common-lisp/ecl/issues/242
+#-windows
 (test mix.0016.fifo-tests
   (ext:run-program "mkfifo" '("my-fifo") :output t)
   ;; 1) reader (first) and writer (inside)
-  (with-open-file (stream "my-fifo")
+  (with-open-file (stream "my-fifo" :nonblock t)
     (is (null (file-length stream)))
     (is (null (listen stream)))
     (is (eql :foo (read-line stream nil :foo)))
     (is (eql :fifo (ext:file-kind stream nil)))
-    (with-open-file (stream2 "my-fifo" :direction :output)
-      ;; Even for output it should not block on Linux.
+    (with-open-file (stream2 "my-fifo" :direction :output :nonblock t)
+      ;; Even for output it should not block on Unix.
       (finishes (write-line "foobar" stream2)))
-    (is (equal "foobar" (read-line stream nil :foo))))
-  ;; 2) writer (first) and reader (second)
-  (with-open-file (stream "my-fifo" :direction :output)
-    (finishes (write-line "foobar" stream)))
-  (with-open-file (stream "my-fifo" :direction :input)
     ;; there is nobody on the other side, data is lost
+    (is (equal :foo (read-line stream nil :foo))))
+  ;; 2) writer (first) and reader (second)
+  (signals file-error (open "my-fifo" :direction :output :nonblock t))
+  (with-open-file (stream "my-fifo" :direction :input :nonblock t)
     (is (eql :foo (read-line stream nil :foo))))
-  ;; 3) writer (first) and reader (inside)
-  (with-open-file (stream "my-fifo" :direction :output)
-    (finishes (write-line "foobar" stream))
-    (with-open-file (stream2 "my-fifo" :direction :input)
-      ;; Even for output it should not block on Linux.
-      (is (equal "foobar" (read-line stream2 nil :foo)))))
   ;; clean up
-  (ext:run-program "rm" '("-rf" "my-fifo") :output t))
+  (delete-file "my-fifo"))
 
 
 ;;; Date: 2018-12-02
@@ -391,3 +372,286 @@
       (setf stream-var inner-stream-var)
       (is (open-stream-p stream-var)))
     (is (not (open-stream-p stream-var)))))
+
+;;;; Author:   Tarn W. Burton
+;;;; Created:  2021-06-05
+;;;; Contains: *ed-functions* tests
+(test mix.0020.ed-functions
+  (let ((ext:*ed-functions* (list (lambda (x)
+                                    (equal x "foo"))
+                                  (lambda (x)
+                                    (equal x "bar"))
+                                  (lambda (x)
+                                    (when (equal x "baz")
+                                      (error 'file-error :pathname x))))))
+    (is (ed "foo"))
+    (is (ed "bar"))
+    (signals simple-error (ed "qux"))
+    (signals file-error (ed "baz"))))
+
+;;;; Author:   Tarn W. Burton
+;;;; Created:  2021-12-21
+;;;; Contains: pretty printer tests for real valued columns
+(defclass pp-stream-test (gray:fundamental-character-output-stream)
+  ((column :accessor gray:stream-line-column
+           :initform (random .5))
+   (value :accessor pp-stream-test-value
+          :initform (make-array 10 :adjustable t :fill-pointer 0
+                                :element-type 'character))))
+(defmethod gray:stream-write-char ((stream pp-stream-test) char)
+  (if (eql char #\Newline)
+      (setf (gray:stream-line-column stream) (random .5))
+      (incf (gray:stream-line-column stream)))
+  (vector-push-extend char (pp-stream-test-value stream)))
+(test mix.0021.pretty-printer
+  (let ((stream (make-instance 'pp-stream-test))
+        (*print-right-margin* 15))
+    (pprint '(let ((fu 1) (bar 2)) (+ fu bar 7))
+            stream)
+    (is-eql (sys:file-column stream) 15)
+    (is (gray:stream-advance-to-column stream 20))
+    (write-char #\A stream)
+    (is-equal (pp-stream-test-value stream)
+            "
+(LET ((FU 1)
+      (BAR 2))
+  (+ FU BAR 7))    A")))
+
+;; Created: 2022-04-27
+;; Contains: a smoke test for a new operator si:adjust-vector
+(test mix.0022.adjust-vector
+  (let ((vector (si:make-vector t 10 t nil nil nil)))
+    (si:adjust-vector vector 20)
+    (is (= 20 (array-total-size vector)))))
+
+;;; Created: 2022-11-10
+;;; Contains: tests for the logarithm of very small or very large
+;;; numbers where the number coerced to a single-float is 0 or
+;;; infinity but its logarithm can be represented as a finite
+;;; single-float.
+(test mix.0023.log-floating-point-overflow
+  (let ((x (ash 1 1024)))
+    (finishes (log x))
+    (finishes (log (- x)))
+    (finishes (log (/ 1 x)))
+    (finishes (log (- (/ 1 x))))))
+
+;;; Created: 2023-01-02
+;;; Contains: tests checking that (log x y) does not unnecessarily
+;;; lose precision through intermediate single-float calculations when
+;;; the final result is a double or long float.
+(test mix.0024.log-loss-of-precision
+  (is (eql (log 2 2d0) 1d0))
+  (is (eql (realpart (log -2 2d0)) 1d0))
+  (is (eql (log (ash 1 1024) 2d0) 1024d0))
+  (is (eql (realpart (log (- (ash 1 1024)) 2d0)) 1024d0))
+  (is (eql (log 1/2 2d0) -1d0))
+  (is (eql (realpart (log -1/2 2d0)) -1d0))
+  (is (eql (log 2s0 2d0) 1d0))
+  (is (eql (realpart (log -2s0 2d0)) 1d0))
+
+  (is (eql (log 2 2l0) 1l0))
+  (is (eql (realpart (log -2 2l0)) 1l0))
+  (is (eql (log (ash 1 1024) 2l0) 1024l0))
+  (is (eql (realpart (log (- (ash 1 1024)) 2l0)) 1024l0))
+  (is (eql (log 1/2 2l0) -1l0))
+  (is (eql (realpart (log -1/2 2l0)) -1l0))
+  (is (eql (log 2s0 2l0) 1l0))
+  (is (eql (realpart (log -2s0 2l0)) 1l0))
+  (is (eql (log 2d0 2l0) 1l0))
+  (is (eql (realpart (log -2d0 2l0)) 1l0)))
+
+;;; Created: 2023-01-07
+;;; Contains: tests checking for illegal format parameters that occur
+;;; after at signs or colons.
+(test mix.0025.illegal-format-parameters
+  (signals error (format nil "a~@4A" nil))
+  (signals error (format nil "a~:4A" nil))
+  (signals error (format nil "a~:@4A" nil))
+  (signals error (format nil "a~@:4A" nil))
+  (is (equal (format nil "a~4@A" nil) "a NIL"))
+  (is (equal (format nil "a~4:A" nil) "a()  "))
+  (is (equal (format nil "a~4:@A" nil) "a  ()"))
+  (is (equal (format nil "a~4@:A" nil) "a  ()")))
+
+;;; Created: 2023-01-16
+;;; Contains: tests checking that listen returns nil if we are at the
+;;; end of a file
+(test mix.0026.file-listen
+  (is (equal (progn
+               (with-open-file (blah "nada.txt" :direction :output
+                               :if-does-not-exist :create
+                               :if-exists :supersede)
+                 (write-char #\a blah))
+               (with-open-file (blah "nada.txt" :direction :input)
+                 (list (listen blah)
+                       (read-char blah)
+                       (listen blah))))
+             (list t #\a nil))))
+
+;;; Created: 2023-02-20
+;;; Contains: test to look for NIL in format directive forms.
+;;;
+;;; Simple LOOP requires only compound forms. Hence NIL is not
+;;; permitted. Some FORMAT directives (like newline) return NIL
+;;; as the form when they have nothing to add to the body.
+;;; Normally this is fine since BLOCK accepts NIL as a form. On
+;;; the other hand, when the newline directive is inside of an
+;;; iteration directive this will produce something like
+;;; (LOOP (fu) nil (bar)) which is not acceptable. To verify
+;;; that this is not happening we make sure we are not getting
+;;; (BLOCK NIL NIL) since this is easier to test for.
+(test mix.0027.format-no-nil-form
+  (is (equal (third (second (macroexpand-1 '(formatter "~
+"))))
+      '(block nil))))
+
+;;; Created: 2023-12-04 Gray stream proposal is a bit ambiguous about
+;;; the return value of STREAM-READ-LINE. The return from this
+;;; generic function is described as "A string is returned as the
+;;; first value. The second value is true if the string was terminated
+;;; by end-of-file instead of the end of a line." A literal reading of
+;;; this indicates that an EOF with no newline should be returned as
+;;; (VALUES "" T) which is what the default method in the proposal
+;;; does. The following tests ensure that the default Gray method's
+;;; returns are understood by CL:READ-LINE.
+(require :gray-streams)
+
+(defclass character-input-stream
+    (gray:fundamental-character-input-stream)
+  ((value :reader value
+          :initarg :value)
+   (index :accessor index
+          :initform 0)))
+
+(defmethod gray:stream-read-char ((stream character-input-stream))
+  (with-accessors ((value value)
+                   (index index))
+      stream
+    (if (< index (length value))
+        (prog1 (char value index)
+          (incf index))
+        :eof)))
+
+(defmethod gray:stream-unread-char ((stream character-input-stream) character)
+  (with-accessors ((value value)
+                   (index index))
+      stream
+    (when (zerop index)
+      (error "Stream is at beginning, cannot unread character"))
+    (when (char/= character (char value (decf index)))
+      (error "Cannot unread a character that does not match."))
+    nil))
+
+(test mix.0028.read-line-eof
+  (signals end-of-file
+           (read-line (make-instance 'character-input-stream :value ""))))
+
+(test mix.0029.read-line-eof
+  (is (equal (multiple-value-list (read-line (make-instance 'character-input-stream :value "") nil :wibble))
+             '(:wibble t))))
+
+(test mix.0029.read-line-eof
+  (is (equal (multiple-value-list (read-line (make-instance 'character-input-stream :value "a
+")))
+             '("a" nil))))
+
+;;;; Author:   Tarn W. Burton
+;;;; Created:  2024-05-10
+;;;; Description:
+;;;;     Test to ensure that write-char returns the correct value. An
+;;;;     incorrect value or stack smashing indicated a buffer overrun
+;;;;     caused by an encoding buffer that is too small.
+
+(test mix.0030.write-char-encode-buffer
+  (is (equal (with-open-file (s "/tmp/whatever.txt"
+                                :if-does-not-exist :create
+                                :if-exists :supersede
+                                :external-format :ucs-4
+                                :direction :output)
+               (write-char #\a s))
+             #\a)))
+
+;;;; Reported by: Charles Zhang
+;;;; Fixed: Daniel Kochmański
+;;;; Created: 2024-05-12
+;;;; Issue: https://gitlab.com/embeddable-common-lisp/ecl/-/issues/742
+;;;; Description:
+;;;;     Test to ensure that defining a no-op non-terminating macro on a digit
+;;;;     does not break readers for composite tokens like #x123. See #742.
+(test mix.0031.redefine-digit
+  (let ((standard-readtable (copy-readtable nil))
+        (*readtable* (copy-readtable nil)))
+    (set-macro-character #\1 (lambda (stream char)
+                               (unread-char char stream)
+                               (let ((*readtable* standard-readtable))
+                                 (read stream t nil t)))
+                         t)
+    (finishes (read-from-string "#x123"))))
+
+;;; Author: Daniel Kochmański
+;;; Created: 2025-05-09
+;;; Issue: https://gitlab.com/embeddable-common-lisp/ecl/-/merge_requests/346#note_2492489716
+;;; Description
+;;;
+;;;     Moving locals from heap to the stack revealed an issue where stack
+;;;     frames are invalidated after the lisp stack is resized. That causes
+;;;     a risk of local variables to be garbage collected.
+;;;
+;;; | Call DO-ENTRIES* | #x1000 [TRASH] | #x1000 [TRASH] |
+;;; | Resize the stack | #x1000 [TRASH] | #x2000 [TRASH] |
+;;; | Bind a local var | #x1000 [value] | #x2000 [TRASH] |
+;;; | Allocations-> GC | #x1000 [what?] | #x2000 [TRASH] |
+;;; | Load a local var | #x1000 [what?] | #x2000 [TRASH] |
+;;;
+;;; We bind the variable after the stack has been resized, so when we copy the
+;;; memory during the stack resize only [TRASH] is transferred.
+;;;
+;;; Since the lisp stack is allocated with ecl_alloc_atomic, referenced values must
+;;; be explicitly marked -- and it is done so in ecl_mark_env. This is very sane
+;;; thing to do, because if we had marked whole vector (even above top), then we'd
+;;; retain old references, and generally we'd mark 32K instead of say 200 addresses.
+;;;
+;;; But, when we grow the stack, the old vector is replaced, and ecl_mark_env does
+;;; not mark the old stack, effectively allowing to reuse up our [value] by GC.
+;;;
+;;; Note that usually stack frames are filled eagerly to complete argument list, so
+;;; this issue is irrelevant to them (because we don't change values after resize),
+;;; so this prolbem did not manifest itself until now.
+
+(deftest mix.0031.invalidate-stack-frames ()
+  (macrolet ((ntimes (n form)
+               `(progn ,@(make-list n :initial-element form))))
+    (labels ((resize-lisp-stack ()
+               (let* ((old-limit (ext:get-limit 'ext:lisp-stack))
+                      (new-limit (* old-limit 2)))
+                 (ext:set-limit 'ext:lisp-stack new-limit)))
+             (invoke-test-case ()
+               (resize-lisp-stack)
+               (let ((n 0))
+                 (ntimes 2048 (apply #'append (make-list 2048 :initial-element '(:foo))))
+                 (is (typep n 'number)))))
+      (invoke-test-case))))
+
+;;; Reported by: Artyom Bologov
+;;; Created: 2025-06-26
+;;; Issue: https://gitlab.com/embeddable-common-lisp/ecl/-/issues/784
+;;; Description
+;;;
+;;;     When working with multiple wild components in the directory we've
+;;;     entered an infinite recursion becaue find_list_wildcards created a
+;;;     circular list due to invalid interfacing with find_wildcards.
+;;;
+;;;     Moreover, for a similar cause, we didn't translate correctly such
+;;;     pathnames even after fixing the issue. copy_wildcards did not anticipate
+;;;     that for a :WILD component the result could a list from find_wildcards.
+(deftest mix.0032.logical-pathname-with-multiple-wildcards ()
+  (setf (logical-pathname-translations "x")
+        `(("X:a;*;b;*;*.*" "/hello/*/hi/*/what/*.*")))
+  ;; We don't use #P"x:a;bonjour;b;barev;greetings.me" because then the reader
+  ;; constructs the pathname before the logical pathname translation is defined
+  ;; - in that case it is not recognized as logical and won't be translated.
+  (let* ((pathname (parse-namestring "x:a;bonjour;b;barev;greetings.me"))
+         (result (translate-logical-pathname pathname))
+         (expect #P"/hello/bonjour/hi/barev/what/greetings.me"))
+    (is (equalp result expect))))

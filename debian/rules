@@ -3,6 +3,15 @@
 # Uncomment this to turn on verbose mode.
 #export DH_VERBOSE=1
 
+export DEB_BUILD_MAINT_OPTIONS=optimize=-lto
+
+# Disable threads on troublesome architectures
+ifneq (,$(filter alpha hurd-i386 kfreebsd-amd64 m68k sh4 x32, $(DEB_HOST_ARCH)))
+	TRHEADING=no
+else
+	TRHEADING=yes
+endif
+
 %:
 	dh $@
 
@@ -14,7 +23,7 @@ override_dh_auto_configure:
 	dh_auto_configure -- \
 	   --enable-gmp=system \
 	   --with-tcp \
-	   --enable-threads=yes \
+	   --enable-threads=$(TRHEADING) \
 	   --enable-boehm=system  \
 	   --enable-libatomic=system \
 	   --disable-rpath \
@@ -29,7 +38,9 @@ override_dh_auto_test:
 override_dh_auto_install:
 	dh_auto_install
 # fix lintian error package-contains-info-dir-file
-	rm -f debian/ecl/usr/share/info/dir
+	rm -f debian/ecl/usr/share/info/dir debian/ecl/usr/include/ecl/gc/private
+	mkdir -p debian/ecl/usr/share/info/figures
+	cp src/doc/manual/figures/*.png debian/ecl/usr/share/info/figures/
 
 override_dh_auto_clean:
 	dh_auto_clean
